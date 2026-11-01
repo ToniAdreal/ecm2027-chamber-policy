@@ -1,0 +1,39 @@
+# Local-evaluation config for the starter repo harness
+# (robofinals/applications/eval/entrypoints/policy.py).
+#
+# Usage:
+#   1. Copy this file to the starter checkout as
+#      configs/evaluation/chamber_policy.local.yml and adjust paths.
+#   2. Make this package importable by the harness, e.g. run from a shell
+#      with PYTHONPATH=<ecm2027-policy dir>:<starter repo root>.
+#   3. bash scripts/run_policy_eval.sh configs/evaluation/chamber_policy.local.yml
+#
+# `checkpoint` is unused by this policy unless it points at an .npz/.hdf5
+# trajectory; the trajectory can also be set via `trajectory_path` below or
+# the ECM_TRAJECTORY_PATH environment variable.
+policy_name: ecm_policy.adapter:ChamberReplayPolicy
+checkpoint: /absolute/path/to/ecm2027-policy/data/demo_7_ee_poses.npz
+test_num: 1
+time_out_limit: 900
+instruction: Service the chamber
+# Policy-specific options (read by ChamberReplayPolicy, ignored by the harness):
+# trajectory_episode: demo_7        # only for .hdf5 trajectory files
+# policy_lookahead: 1
+# policy_phase_window: 250
+# policy_gripper_left: 1.0          # >= 0 open, < 0 close (binary gripper action)
+# policy_gripper_right: 1.0
+# policy_action_quat_order: wxyz    # or xyzw if the official spec requires it
+# policy_max_steps: 8166            # default: demo length + 600
+env_cfg:
+  task: ChamberServiceTask
+  scene_backend: local
+  task_backend: local
+  robot: Galbot-Mobile
+  layout: robofinals/data/assets/Scene/scene04_1.usd
+  enable_full_local_scene: true
+  physics_backend: physx
+  device: cpu
+  num_envs: 1
+  rl: null
+  sources: []
+  object_projects: []
