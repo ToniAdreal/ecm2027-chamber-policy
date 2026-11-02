@@ -12,11 +12,13 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ecm_policy.core import ReplayFollowCore  # noqa: E402
+from ecm_policy.multidemo import MultiDemoCore  # noqa: E402
 from ecm_policy.service import build_server  # noqa: E402
 from ecm_policy.trajectory import load_ee_poses_npz  # noqa: E402
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 DEMO_NPZ = PACKAGE_ROOT / "data" / "demo_7_ee_poses.npz"
+DEMO_9_NPZ = PACKAGE_ROOT / "data" / "demo_9_ee_poses.npz"
 
 
 class PolicyServiceTests(unittest.TestCase):
@@ -96,6 +98,67 @@ class PolicyServiceTests(unittest.TestCase):
         self.assertEqual(status, 400)
         status, _ = self.request("GET", "/nope")
         self.assertEqual(status, 404)
+
+
+class MultiDemoServiceTests(unittest.TestCase):
+    """The same HTTP surface, driven by the multi-demo core (v3)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.demo_9 = load_ee_poses_npz(DEMO_9_NPZ)
+        core = MultiDemoCore.from_npz_dir(PACKAGE_ROOT / "data")
+        cls.server = build_server(
+            "127.0.0.1", 0, core, shutdown_on_close=False
+        )
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def request(self, method: str, path: str, payload=None, raw_body=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        body = raw_body
+        headers = {}
+        if payload is not None:
+            body = json.dumps(payload)
+            headers["Content-Type"] = "application/json"
+        conn.request(method, path, body=body, headers=headers)
+        response = conn.getresponse()
+        data = response.read()
+        conn.close()
+        return response.status, json.loads(data.decode("utf-8")) if data else {}
+
+    def test_health_lists_demos(self):
+        status, body = self.request("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["num_demos"], 4)
+        self.assertEqual(body["demo_names"], ["demo_0", "demo_2", "demo_7", "demo_9"])
+        self.assertEqual(body["selected"], "demo_0")
+
+    def test_reset_with_observation_selects_demo(self):
+        # Reset with demo_9's first frame: the service must select demo_9.
+        status, body = self.request("POST", "/reset", {
+            "task_info": {"task": "ChamberServiceTask"},
+            "observation": {"eef_pos": self.demo_9[0, :, 0:3].tolist()},
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["selected"], "demo_9")
+        status, body = self.request("POST", "/predict", {"observation": {}})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["selected"], "demo_9")
+        self.assertEqual(len(body["action"]), 20)
+        np.testing.assert_allclose(
+            body["action"][0:7], self.demo_9[1, 0], atol=1e-6
+        )
+
+    def test_reset_without_observation_defaults_to_first_demo(self):
+        status, body = self.request("POST", "/reset", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["selected"], "demo_0")
 
 
 if __name__ == "__main__":

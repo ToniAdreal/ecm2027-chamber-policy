@@ -1,4 +1,4 @@
-# ECM 2027 Policy v2 — TwinTeleop Multi-Demo Replay-Follow
+# ECM 2027 Policy v3 — TwinTeleop Multi-Demo Replay-Follow
 
 Policy package for the **Singapore Embodied AI Challenge for Manufacturing**
 (ECM 2027, simulation track), Team TwinTeleop (Team ID ECM-122). This is the
@@ -64,7 +64,15 @@ The policy core (`ecm_policy/core.py`, pure NumPy):
 
 ## Interfaces
 
-Two adapters share the same core:
+Two adapters share the same core, and both now run the multi-demo core
+(v3): the service defaults to multi-demo mode over `data/` (use
+`--trajectory <single .npz>` for the old single-demo mode), and the
+adapter builds a `MultiDemoCore` when `trajectory_dir` / `demo_dir` /
+`ECM_TRAJECTORY_DIR` is set or when `trajectory_path` points at a
+directory. In multi-demo mode the episode's initial observation selects
+the demo: the service accepts an `observation` on `/reset`, and the
+adapter passes the harness's first observation into `reset()`. Without
+an observation both fall back to the first demo, exactly as v2 did.
 
 1. **Docker policy service** (`ecm_policy/service.py`) — the planned
    official submission shape. The starter README names the service
@@ -75,9 +83,9 @@ Two adapters share the same core:
 
    | Endpoint | Body | Response |
    | - | - | - |
-   | `GET /health` | – | readiness, trajectory steps, actions dim, phase |
-   | `POST /reset` | `{"task_info": {...}}` | `{"status": "ok", "phase": 0}` |
-   | `POST /predict` | `{"observation": {"eef_pos": [[x,y,z],[x,y,z]]}}` | `{"action": [20 floats], "phase": n, "steps_taken": n}` |
+   | `GET /health` | – | readiness, demo list, selected demo, phase |
+   | `POST /reset` | `{"task_info": {...}}` (+ optional `observation`) | `{"status": "ok", "phase": 0, "selected": "demo_9"}` |
+   | `POST /predict` | `{"observation": {"eef_pos": [[x,y,z],[x,y,z]]}}` | `{"action": [20 floats], "phase": n, "steps_taken": n, "selected": "demo_9"}` |
    | `POST /close` | `{}` | `{"status": "ok", "closed": true}`; the process then exits unless started with `--no-shutdown-on-close` |
 
    The observation is optional; without `eef_pos` the policy replays
@@ -150,6 +158,21 @@ python tools/extract_demo_trajectory.py \
   --input /path/to/replay_state_ee_poses.hdf5 --episode demo_7 \
   --output data/demo_7_ee_poses.npz
 ```
+
+## Verification status (2026-11-02, v3)
+
+Verified on a GPU-less VM: core unit tests, multi-demo selection tests
+(synthetic + real 4-demo set), live HTTP service tests for both the
+single-demo and multi-demo cores, and mock-env adapter rollouts including
+two new multi-demo adapter tests (selection from the initial observation,
+first-demo fallback without EE data) — 31 tests, all passing, in both
+the working copy and an isolated copy, plus the starter repo's
+7 lightweight regression tests (all passing, before and after this work).
+**Not verified:** any run inside Isaac Sim (no GPU on the development host),
+the Docker image build (no Docker on the development host), and the
+official submission validation (the official Docker service specification
+and validator had not been released as of 2026-11-02). No competition
+score is claimed for this policy.
 
 ## Verification status (2026-11-01, v2)
 

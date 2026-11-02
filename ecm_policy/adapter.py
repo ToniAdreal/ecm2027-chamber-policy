@@ -7,7 +7,10 @@ class named by ``policy_name: module:Class`` in the evaluation YAML, calls
 video_writer)`` per batch, and summarizes the returned per-episode booleans
 with ``format_eval_results``.
 
-``ChamberReplayPolicy`` wraps :class:`ReplayFollowCore` in that interface.
+``ChamberReplayPolicy`` wraps :class:`ReplayFollowCore` (single demo) or
+:class:`MultiDemoCore` (v3: nearest-start demo selection over a directory
+of demos, selected from the episode's initial observation) in that
+interface.
 Two integration details from the starter code are handled explicitly:
 
 * The entrypoint only adds ``usr_args['actions_dim']`` (from simulator
@@ -51,6 +54,7 @@ except ImportError:  # pragma: no cover - exercised only off-sim hosts
 from policy.base import BasePolicy
 
 from .core import ReplayFollowCore
+from .multidemo import MultiDemoCore
 from .trajectory import load_ee_poses_hdf5, load_ee_poses_npz
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -70,14 +74,15 @@ class ChamberReplayPolicy(BasePolicy):
     # -- BasePolicy contract --------------------------------------------------
 
     def get_model(self, usr_args: Dict[str, Any]):
-        trajectory_path = self._resolve_trajectory_path(usr_args)
-        if trajectory_path.suffix == ".hdf5":
-            episode = usr_args.get("trajectory_episode", "demo_7")
-            ee_poses = load_ee_poses_hdf5(trajectory_path, episode)
-        else:
-            ee_poses = load_ee_poses_npz(trajectory_path)
-        self.model = ReplayFollowCore(
-            ee_poses,
+        """Build the policy core.
+
+        Multi-demo mode (v3): when ``trajectory_dir`` / ``demo_dir`` is
+        given, or ``trajectory_path`` / ``checkpoint`` points at a
+        directory, or ``ECM_TRAJECTORY_DIR`` is set, build a
+        MultiDemoCore over every ``*_ee_poses.npz`` bundle in that
+        directory. Otherwise the v1 single-demo path is unchanged.
+        """
+        core_kwargs = dict(
             actions_dim=int(usr_args.get("actions_dim", 20)),
             lookahead=int(usr_args.get("policy_lookahead", 1)),
             phase_window=int(usr_args.get("policy_phase_window", 250)),
@@ -85,6 +90,17 @@ class ChamberReplayPolicy(BasePolicy):
             gripper_right=float(usr_args.get("policy_gripper_right", 1.0)),
             action_quat_order=str(usr_args.get("policy_action_quat_order", "wxyz")),
         )
+        demo_dir = self._resolve_demo_dir(usr_args)
+        if demo_dir is not None:
+            self.model = MultiDemoCore.from_npz_dir(demo_dir, **core_kwargs)
+            return self.model
+        trajectory_path = self._resolve_trajectory_path(usr_args)
+        if trajectory_path.suffix == ".hdf5":
+            episode = usr_args.get("trajectory_episode", "demo_7")
+            ee_poses = load_ee_poses_hdf5(trajectory_path, episode)
+        else:
+            ee_poses = load_ee_poses_npz(trajectory_path)
+        self.model = ReplayFollowCore(ee_poses, **core_kwargs)
         return self.model
 
     def get_action(self):
@@ -96,10 +112,18 @@ class ChamberReplayPolicy(BasePolicy):
             self.model.reset()
 
     def eval(self, task_env, observation, usr_args, video_writer):
-        core: ReplayFollowCore = self.model
+        core = self.model
         if usr_args.get("actions_dim"):
             core.set_actions_dim(int(usr_args["actions_dim"]))
-        core.reset()
+        if isinstance(core, MultiDemoCore):
+            # Select the demo from the episode's observed initial EE pose.
+            ee = self._extract_ee(observation)
+            if ee is not None:
+                core.reset(observation={"eef_pos": ee})
+            else:
+                core.reset()
+        else:
+            core.reset()
 
         env_cfg = usr_args.get("env_cfg") or {}
         num_envs = max(1, int(env_cfg.get("num_envs", 1))) if isinstance(env_cfg, dict) else 1
@@ -140,17 +164,36 @@ class ChamberReplayPolicy(BasePolicy):
 
         if not saw_explicit_success:
             success_flags = terminated_flags.copy()
-        self._write_diagnostics(usr_args, {
+        diagnostics = {
             "steps": steps,
             "step_budget": step_budget,
             "terminated": terminated_flags.tolist(),
             "success": success_flags.tolist(),
             "success_source": "extras" if saw_explicit_success else "terminated_fallback",
             "final_phase": core.phase,
-        })
+        }
+        if isinstance(core, MultiDemoCore):
+            diagnostics["selected_demo"] = core.selected
+            diagnostics["demo_names"] = core.demo_names
+        self._write_diagnostics(usr_args, diagnostics)
         return success_flags
 
     # -- internals --------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_demo_dir(usr_args: Dict[str, Any]) -> Path | None:
+        for key in ("trajectory_dir", "demo_dir"):
+            value = usr_args.get(key)
+            if value and Path(str(value)).is_dir():
+                return Path(str(value))
+        for key in ("trajectory_path", "checkpoint"):
+            value = usr_args.get(key)
+            if value and Path(str(value)).is_dir():
+                return Path(str(value))
+        env_dir = os.environ.get("ECM_TRAJECTORY_DIR")
+        if env_dir and Path(env_dir).is_dir():
+            return Path(env_dir)
+        return None
 
     @staticmethod
     def _resolve_trajectory_path(usr_args: Dict[str, Any]) -> Path:

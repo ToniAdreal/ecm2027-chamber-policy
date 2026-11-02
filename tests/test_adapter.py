@@ -70,6 +70,7 @@ from ecm_policy.adapter import ChamberReplayPolicy  # noqa: E402
 from ecm_policy.trajectory import load_ee_poses_npz  # noqa: E402
 
 DEMO = load_ee_poses_npz(PACKAGE_ROOT / "data" / "demo_7_ee_poses.npz")
+DEMO_9 = load_ee_poses_npz(PACKAGE_ROOT / "data" / "demo_9_ee_poses.npz")
 
 
 class MockEnv:
@@ -157,6 +158,41 @@ class AdapterRolloutTests(unittest.TestCase):
         first = env.actions_seen[0][0]
         np.testing.assert_allclose(first[0:7], DEMO[1, 0], atol=1e-6)
         np.testing.assert_allclose(first[7:14], DEMO[1, 1], atol=1e-6)
+
+    def test_multidemo_selects_from_initial_observation(self):
+        # Multi-demo mode: initial obs at demo_9's start must select demo_9,
+        # and the first command must come from demo_9's lookahead pose.
+        import json as _json
+        import tempfile
+
+        policy, usr_args = make_policy(
+            trajectory_dir=str(PACKAGE_ROOT / "data")
+        )
+        env = MockEnv(terminate_at=1, with_success_extras=True)
+        obs = {"policy": {"eef_pos": DEMO_9[0][None, :, 0:3].copy()},
+               "embodiment_general_obs": {}}
+        policy.reset_model()
+        with tempfile.TemporaryDirectory() as tmp:
+            usr_args["save_path"] = tmp
+            policy.eval(env, obs, usr_args, None)
+            diag = _json.loads(
+                (Path(tmp) / "replay_policy_diagnostics.json").read_text()
+            )
+        self.assertEqual(diag["selected_demo"], "demo_9")
+        first = env.actions_seen[0][0]
+        np.testing.assert_allclose(first[0:7], DEMO_9[1, 0], atol=1e-6)
+        np.testing.assert_allclose(first[7:14], DEMO_9[1, 1], atol=1e-6)
+
+    def test_multidemo_defaults_to_first_demo_without_ee(self):
+        policy, usr_args = make_policy(
+            trajectory_dir=str(PACKAGE_ROOT / "data")
+        )
+        env = MockEnv(terminate_at=1, with_success_extras=True)
+        policy.reset_model()
+        policy.eval(env, {}, usr_args, None)
+        first = env.actions_seen[0][0]
+        demo_0 = load_ee_poses_npz(PACKAGE_ROOT / "data" / "demo_0_ee_poses.npz")
+        np.testing.assert_allclose(first[0:7], demo_0[1, 0], atol=1e-6)
 
 
 if __name__ == "__main__":

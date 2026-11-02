@@ -11,9 +11,13 @@ released without touching the policy core:
 
 * ``GET  /health``  -> readiness and policy state as JSON.
 * ``POST /reset``   -> body ``{"task_info": {...}}`` (optional); starts a
-  new episode and resets the policy state.
+  new episode and resets the policy state. The body may also carry
+  ``observation`` (same shape as /predict); when the policy is a
+  multi-demo core, the observed initial EE positions select the demo for
+  the episode.
 * ``POST /predict`` -> body ``{"observation": {...}}`` (optional); returns
-  ``{"action": [...], "phase": int, "steps_taken": int}``. The observation
+  ``{"action": [...], "phase": int, "steps_taken": int}`` (plus
+  ``"selected"`` when a multi-demo core is in use). The observation
   may carry ``eef_pos`` (current dual-arm EE positions, shape (2, 3) or
   (1, 2, 3)) to enable closed-loop phase tracking; without it the policy
   replays open-loop.
@@ -36,14 +40,16 @@ from pathlib import Path
 import numpy as np
 
 from .core import ReplayFollowCore
+from .multidemo import MultiDemoCore
 from .trajectory import load_ee_poses_npz
 
 POLICY_NAME = "twin-teleop-replay-follow"
-POLICY_VERSION = "0.1.0"
+POLICY_VERSION = "0.3.0"
 MAX_BODY_BYTES = 1 << 20  # 1 MiB request cap
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TRAJECTORY = _PACKAGE_ROOT / "data" / "demo_7_ee_poses.npz"
+DEFAULT_TRAJECTORY_DIR = _PACKAGE_ROOT / "data"
 
 
 def default_trajectory_path() -> Path:
@@ -52,9 +58,14 @@ def default_trajectory_path() -> Path:
 
 
 class PolicyService:
-    """Thin HTTP adapter over ReplayFollowCore (one episode at a time)."""
+    """Thin HTTP adapter over a policy core (one episode at a time).
 
-    def __init__(self, core: ReplayFollowCore):
+    Accepts either ReplayFollowCore or MultiDemoCore: both expose
+    health()/reset()/predict_with_info()/close(), and the multi-demo core
+    additionally takes an observation at reset for demo selection.
+    """
+
+    def __init__(self, core):
         self.core = core
         self._lock = threading.Lock()
 
@@ -66,20 +77,26 @@ class PolicyService:
             **state,
         }
 
-    def reset(self, task_info: dict | None) -> dict:
+    def reset(self, task_info: dict | None, observation: dict | None = None) -> dict:
         with self._lock:
-            state = self.core.reset(task_info)
+            if isinstance(self.core, MultiDemoCore):
+                state = self.core.reset(task_info, observation=observation)
+            else:
+                state = self.core.reset(task_info)
         return {"status": "ok", **state}
 
     def predict(self, observation: dict | None) -> dict:
         with self._lock:
             action, info = self.core.predict_with_info(observation)
-        return {
+        response = {
             "action": [float(v) for v in action],
             "phase": info["phase"],
             "steps_taken": info["steps_taken"],
             "phase_tracked": info["phase_tracked"],
         }
+        if "selected" in info:
+            response["selected"] = info["selected"]
+        return response
 
     def close(self) -> dict:
         with self._lock:
@@ -127,7 +144,10 @@ def make_handler(service: PolicyService, *, shutdown_on_close: bool):
                     task_info = body.get("task_info")
                     if task_info is not None and not isinstance(task_info, dict):
                         raise ValueError("task_info must be a JSON object")
-                    self._send_json(service.reset(task_info))
+                    observation = body.get("observation")
+                    if observation is not None and not isinstance(observation, dict):
+                        raise ValueError("observation must be a JSON object")
+                    self._send_json(service.reset(task_info, observation))
                 elif path == "/predict":
                     observation = body.get("observation")
                     if observation is not None and not isinstance(observation, dict):
@@ -156,7 +176,7 @@ def make_handler(service: PolicyService, *, shutdown_on_close: bool):
     return Handler
 
 
-def build_server(host: str, port: int, core: ReplayFollowCore, *,
+def build_server(host: str, port: int, core, *,
                  shutdown_on_close: bool = True) -> ThreadingHTTPServer:
     service = PolicyService(core)
     handler = make_handler(service, shutdown_on_close=shutdown_on_close)
@@ -164,20 +184,33 @@ def build_server(host: str, port: int, core: ReplayFollowCore, *,
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="ECM 2027 policy service (v1)")
+    parser = argparse.ArgumentParser(description="ECM 2027 policy service (v3)")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
-    parser.add_argument("--trajectory", default=str(default_trajectory_path()))
+    parser.add_argument("--trajectory", default=None,
+                        help="single demo .npz bundle (v1 mode)")
+    parser.add_argument("--trajectory-dir", default=None,
+                        help="directory of demo .npz bundles for multi-demo "
+                             "mode (default: package data/ when --trajectory "
+                             "is not given)")
     parser.add_argument("--actions-dim", type=int, default=20)
     parser.add_argument("--lookahead", type=int, default=1)
     parser.add_argument("--no-shutdown-on-close", action="store_true",
                         help="keep serving after /close (useful for local tests)")
     args = parser.parse_args(argv)
 
-    ee_poses = load_ee_poses_npz(args.trajectory)
-    core = ReplayFollowCore(
-        ee_poses, actions_dim=args.actions_dim, lookahead=args.lookahead
-    )
+    if args.trajectory:
+        ee_poses = load_ee_poses_npz(args.trajectory)
+        core = ReplayFollowCore(
+            ee_poses, actions_dim=args.actions_dim, lookahead=args.lookahead
+        )
+        core_desc = f"trajectory steps={core.num_steps}"
+    else:
+        demo_dir = args.trajectory_dir or str(DEFAULT_TRAJECTORY_DIR)
+        core = MultiDemoCore.from_npz_dir(
+            demo_dir, actions_dim=args.actions_dim, lookahead=args.lookahead
+        )
+        core_desc = f"demos={core.demo_names}"
     server = build_server(
         args.host, args.port, core,
         shutdown_on_close=not args.no_shutdown_on_close,
@@ -185,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     host, port = server.server_address[:2]
     print(
         f"{POLICY_NAME} v{POLICY_VERSION} listening on {host}:{port} "
-        f"(trajectory steps={core.num_steps}, actions_dim={core.actions_dim})",
+        f"({core_desc}, actions_dim={core.actions_dim if hasattr(core, 'actions_dim') else core.selected_core.actions_dim})",
         flush=True,
     )
     try:

@@ -94,8 +94,22 @@ class MultiDemoCore:
         return self._cores[self._selected]
 
     @property
+    def phase(self) -> int:
+        return self.selected_core.phase
+
+    @property
+    def num_steps(self) -> int:
+        """Length of the currently selected demo's trajectory."""
+        return self.selected_core.num_steps
+
+    @property
     def closed(self) -> bool:
         return self._closed
+
+    def set_actions_dim(self, actions_dim: int) -> None:
+        """Resize every wrapped demo core (mirrors ReplayFollowCore)."""
+        for core in self._cores.values():
+            core.set_actions_dim(actions_dim)
 
     def health(self) -> dict:
         return {
