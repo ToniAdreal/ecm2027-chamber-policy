@@ -48,13 +48,7 @@ POLICY_VERSION = "0.3.0"
 MAX_BODY_BYTES = 1 << 20  # 1 MiB request cap
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_TRAJECTORY = _PACKAGE_ROOT / "data" / "demo_7_ee_poses.npz"
 DEFAULT_TRAJECTORY_DIR = _PACKAGE_ROOT / "data"
-
-
-def default_trajectory_path() -> Path:
-    env_path = os.environ.get("ECM_TRAJECTORY_PATH")
-    return Path(env_path) if env_path else DEFAULT_TRAJECTORY
 
 
 class PolicyService:
