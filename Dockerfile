@@ -18,8 +18,12 @@ COPY data/ ./data/
 COPY README.md ./
 
 ENV PYTHONPATH=/app \
-    PORT=8080 \
-    ECM_TRAJECTORY_PATH=/app/data/demo_7_ee_poses.npz
+    PORT=8080
+# NOTE: no ECM_TRAJECTORY_PATH here on purpose. That variable is only
+# honoured by the harness adapter (ecm_policy/adapter.py); the service
+# entrypoint below ignores it and defaults to multi-demo mode over
+# /app/data (all four bundled episodes). Setting it here used to imply
+# a single-demo (demo_7) image, which was not what the image ran.
 
 EXPOSE 8080
 
