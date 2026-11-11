@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-06 (Beijing)
-**Policy version:** v3 — multi-demo replay-follow
+**Submission date:** 2026-11-10 (Beijing)
+**Policy version:** v3.1 — multi-demo replay-follow (Batch 2 integrated)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `6d379358f23dfa96035eb961ba5e2a267967bd28`
-("ECM 2027 chamber policy: full-episode rollout integrity tests", 2026-11-05)
+Commit submitted: `187709553e09ea11ac8fbda11d1582b7579bd3e0`
+("ECM 2027: integrate Batch 2 demos (6-demo set, gripper signal bundled)", 2026-11-10)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -43,10 +43,14 @@ chamber task in the official simulation (`scene04_1.usd`).
 * Both grippers are held at a fixed configurable command and wheel
   velocity is commanded zero — see the honest limitation in §5.
 
-The bundled set holds four real Batch 1 episodes (`demo_0`, `demo_2`,
-`demo_7`, `demo_9`), extracted from four independent recordings of the
-official dataset `rocochallenge2025/ecm2027_sim_data` (175 MB, 104,344
-rows). Episode lengths: 7,471 / 5,632 / 7,566 / 5,122 steps.
+The bundled set holds six real episodes: four Batch 1 (`demo_0`, `demo_2`,
+`demo_7`, `demo_9`) and two Batch 2 (`demo_b2_0`, `demo_b2_3`), extracted
+from six independent recordings of the official dataset
+`rocochallenge2025/ecm2027_sim_data`. Episode lengths: 7,471 / 5,632 /
+7,566 / 5,122 / 4,106 / 4,022 steps. Batch 2 files carry the split
+observation terms `obs/eef_pos` + `obs/eef_quat` (composed into the same
+`(T, 2, 7)` shape by the loader) plus a real gripper observation
+`obs/gripper_pos` `(T, 2)`, stored in the `demo_b2_*` bundles.
 
 ## 2. Interfaces
 
@@ -71,8 +75,9 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **34 / 34 tests pass** in the repository test suite, measured 2026-11-06
-  in an isolated clone at the submitted commit (`6d37935`), including:
+* **39 / 39 tests pass** in the repository test suite, measured 2026-11-10
+  (34 pass under the system Python; the 5 Batch 2 layout tests need h5py
+  and pass under the data-sample venv Python), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, fixed gripper and zero wheels throughout, monotonic phase
   to trajectory end, no mid-episode demo switch), multi-demo selection,
@@ -89,25 +94,34 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 6d379358f23dfa96035eb961ba5e2a267967bd28
+git checkout 187709553e09ea11ac8fbda11d1582b7579bd3e0
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 34 passed
+python3 -m pytest tests/ -q      # expect: 34 passed, 5 skipped (the 5
+                                 # Batch 2 layout tests need h5py)
 docker build -t ecm2027-policy . # policy service image
 ```
 
 Demonstration data is bundled under `data/` (`demo_*_ee_poses.npz`,
 end-effector poses, shape `(T, 2, 7)` = `[x, y, z, qw, qx, qy, qz]` per
-arm). The extraction tool is under `tools/`; Batch 2 data (released
-2026-11-13) can extend the set with the same tool.
+arm; the `demo_b2_*` bundles also carry the recorded `gripper_pos`
+`(T, 2)`). The extraction tool is under `tools/`; Batch 2 data was
+released 2026-11-10 and is integrated in this package (two episodes);
+Batch 3 data (due 2026-11-28) can extend the set with the same tool.
 
 ## 5. Honest limitations
 
-* **No gripper data.** The released demonstration trajectories carry no
-  gripper channel, verified across all four independent Batch 1
+* **Gripper data exists now, in Batch 2 only.** Batch 1 recordings carry
+  no gripper channel, verified across all four independent Batch 1
   recordings (each file contains exactly one `data/demo_*/ee_poses`
-  dataset and nothing else). The policy therefore never changes gripper
-  state. Grasp-dependent milestones cannot be earned until a gripper
-  strategy exists. This is the single biggest known gap.
+  dataset and nothing else). Batch 2 recordings carry
+  `data/demo_*/obs/gripper_pos` `(T, 2)`, a real varying signal (about 0
+  to 1.7 in the two verified episodes), now stored in the `demo_b2_*`
+  bundles. The policy still holds grippers at the fixed command because
+  it does not consume that channel yet; a gripper strategy (mapping
+  recorded `gripper_pos` to the starter repo's binary gripper convention)
+  is the next milestone, not a claim made here. Grasp-dependent
+  milestones cannot be earned until that mapping is built and tested.
+  This is the single biggest known gap.
 * **Fixed-layout assumption, weakened but not removed.** Multi-demo
   selection picks the closest recorded start layout instead of assuming
   one fixed demonstration, but replay still assumes the evaluation scene
@@ -119,7 +133,7 @@ arm). The extraction tool is under `tools/`; Batch 2 data (released
   5 working days and will iterate on it.
 * **Resubmission.** The team understands resubmission is allowed before
   the policy submission deadline of **2026-12-30 12:00 SGT** and will
-  resubmit an improved package (for example with Batch 2 demonstrations)
+  resubmit an improved package (for example with Batch 3 demonstrations)
   if evaluation feedback calls for it.
 
 ## 6. Upstream issue filed

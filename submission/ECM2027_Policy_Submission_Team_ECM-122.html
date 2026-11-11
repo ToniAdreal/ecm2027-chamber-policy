@@ -6,11 +6,11 @@ code { font-size: 9.5pt; background: #f0f0f0; padding: 1px 3px; }
 pre { background: #f0f0f0; padding: 10px; font-size: 9.5pt; white-space: pre-wrap; overflow-wrap: break-word; }
 a { color: #0645ad; }
 </style></head><body><h1>Singapore Embodied AI Challenge for Manufacturing (ECM 2027) — Simulation Track Policy Submission</h1>
-<p><strong>Team:</strong> TwinTeleop — <strong>Team ID: ECM-122</strong> <strong>Team lead:</strong> Toni Adreal — toniadreal11@gmail.com <strong>Submission date:</strong> 2026-11-06 (Beijing) <strong>Policy version:</strong> v3 — multi-demo replay-follow</p>
+<p><strong>Team:</strong> TwinTeleop — <strong>Team ID: ECM-122</strong> <strong>Team lead:</strong> Toni Adreal — toniadreal11@gmail.com <strong>Submission date:</strong> 2026-11-10 (Beijing) <strong>Policy version:</strong> v3.1 — multi-demo replay-follow (Batch 2 integrated)</p>
 <h2>Where the code lives</h2>
 <p>Full policy code, tests, and this document are public at:</p>
 <p><strong>https://github.com/ToniAdreal/ecm2027-chamber-policy</strong></p>
-<p>Commit submitted: <code>6d379358f23dfa96035eb961ba5e2a267967bd28</code> (&quot;ECM 2027 chamber policy: full-episode rollout integrity tests&quot;, 2026-11-05)</p>
+<p>Commit submitted: <code>187709553e09ea11ac8fbda11d1582b7579bd3e0</code> (&quot;ECM 2027: integrate Batch 2 demos (6-demo set, gripper signal bundled)&quot;, 2026-11-10)</p>
 <p>This file is the submission README. The organizers asked for a policy file with a detailed README; because the submission form&#x27;s upload validator rejects archive contents with code, data, and markdown extensions, this single PDF carries the full README and points at the public repository above for the runnable code. No other file is needed to evaluate the policy: clone the repository at the commit above and follow §4.</p>
 <h2>1. What the policy does</h2>
 <p>Multi-demonstration trajectory following for the Galbot-Mobile dual-arm chamber task in the official simulation (<code>scene04_1.usd</code>).</p>
@@ -30,16 +30,16 @@ a { color: #0645ad; }
 <li>Both grippers are held at a fixed configurable command and wheel</li>
 </ul>
 <p>velocity is commanded zero — see the honest limitation in §5.</p>
-<p>The bundled set holds four real Batch 1 episodes (<code>demo_0</code>, <code>demo_2</code>, <code>demo_7</code>, <code>demo_9</code>), extracted from four independent recordings of the official dataset <code>rocochallenge2025/ecm2027_sim_data</code> (175 MB, 104,344 rows). Episode lengths: 7,471 / 5,632 / 7,566 / 5,122 steps.</p>
+<p>The bundled set holds six real episodes: four Batch 1 (<code>demo_0</code>, <code>demo_2</code>, <code>demo_7</code>, <code>demo_9</code>) and two Batch 2 (<code>demo_b2_0</code>, <code>demo_b2_3</code>), extracted from six independent recordings of the official dataset <code>rocochallenge2025/ecm2027_sim_data</code>. Episode lengths: 7,471 / 5,632 / 7,566 / 5,122 / 4,106 / 4,022 steps. Batch 2 files carry the split observation terms <code>obs/eef_pos</code> + <code>obs/eef_quat</code> (composed into the same <code>(T, 2, 7)</code> shape by the loader) plus a real gripper observation <code>obs/gripper_pos</code> <code>(T, 2)</code>, stored in the <code>demo_b2_*</code> bundles.</p>
 <h2>2. Interfaces</h2>
 <p>Two adapters share the same core (<code>ecm_policy/core.py</code>, pure NumPy; multi-demo selection in <code>ecm_policy/multidemo.py</code>):</p>
 <p>1. <strong>Docker policy service</strong> (<code>ecm_policy/service.py</code>) — the planned official submission shape, implementing the starter README&#x27;s service operations <code>health()</code>, <code>reset(task_info)</code>, <code>predict(observation)</code>, <code>close()</code>. Defaults to multi-demo mode over <code>data/</code>; <code>--trajectory &lt;single .npz&gt;</code> selects the old single-demo mode. 2. <strong>In-process adapter</strong> (<code>ecm_policy/adapter.py</code>) — builds a <code>MultiDemoCore</code> when <code>trajectory_dir</code> / <code>demo_dir</code> / <code>ECM_TRAJECTORY_DIR</code> is set or when <code>trajectory_path</code> points at a directory, for use with the starter repository&#x27;s own evaluation harness.</p>
 <p>A <code>Dockerfile</code> is included in the repository. The starter README still lists the official Docker service transport and message schemas as pending; the service follows the operation names the starter README publishes.</p>
 <h2>3. Verification (all CPU-side; this host has no GPU)</h2>
 <ul>
-<li><strong>34 / 34 tests pass</strong> in the repository test suite, measured 2026-11-06</li>
+<li><strong>39 / 39 tests pass</strong> in the repository test suite, measured 2026-11-10</li>
 </ul>
-<p>in an isolated clone at the submitted commit (<code>6d37935</code>), including: full-episode rollout integrity (finite 20-dim actions, unit-norm quaternions, fixed gripper and zero wheels throughout, monotonic phase to trajectory end, no mid-episode demo switch), multi-demo selection, adapter, service, and core tests.</p>
+<p>(34 pass under the system Python; the 5 Batch 2 layout tests need h5py and pass under the data-sample venv Python), including: full-episode rollout integrity (finite 20-dim actions, unit-norm quaternions, fixed gripper and zero wheels throughout, monotonic phase to trajectory end, no mid-episode demo switch), multi-demo selection, adapter, service, and core tests.</p>
 <ul>
 <li>The starter repository&#x27;s 7 supplied lightweight regression tests also</li>
 </ul>
@@ -51,16 +51,17 @@ a { color: #0645ad; }
 <h2>4. How the organizers run it</h2>
 <pre><code>git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 6d379358f23dfa96035eb961ba5e2a267967bd28
+git checkout 187709553e09ea11ac8fbda11d1582b7579bd3e0
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 34 passed
+python3 -m pytest tests/ -q      # expect: 34 passed, 5 skipped (the 5
+                                 # Batch 2 layout tests need h5py)
 docker build -t ecm2027-policy . # policy service image</code></pre>
-<p>Demonstration data is bundled under <code>data/</code> (<code>demo_*_ee_poses.npz</code>, end-effector poses, shape <code>(T, 2, 7)</code> = <code>[x, y, z, qw, qx, qy, qz]</code> per arm). The extraction tool is under <code>tools/</code>; Batch 2 data (released 2026-11-13) can extend the set with the same tool.</p>
+<p>Demonstration data is bundled under <code>data/</code> (<code>demo_*_ee_poses.npz</code>, end-effector poses, shape <code>(T, 2, 7)</code> = <code>[x, y, z, qw, qx, qy, qz]</code> per arm; the <code>demo_b2_*</code> bundles also carry the recorded <code>gripper_pos</code> <code>(T, 2)</code>). The extraction tool is under <code>tools/</code>; Batch 2 data was released 2026-11-10 and is integrated in this package (two episodes); Batch 3 data (due 2026-11-28) can extend the set with the same tool.</p>
 <h2>5. Honest limitations</h2>
 <ul>
-<li><strong>No gripper data.</strong> The released demonstration trajectories carry no</li>
+<li><strong>Gripper data exists now, in Batch 2 only.</strong> Batch 1 recordings carry</li>
 </ul>
-<p>gripper channel, verified across all four independent Batch 1 recordings (each file contains exactly one <code>data/demo_*/ee_poses</code> dataset and nothing else). The policy therefore never changes gripper state. Grasp-dependent milestones cannot be earned until a gripper strategy exists. This is the single biggest known gap.</p>
+<p>no gripper channel, verified across all four independent Batch 1 recordings (each file contains exactly one <code>data/demo_*/ee_poses</code> dataset and nothing else). Batch 2 recordings carry <code>data/demo_*/obs/gripper_pos</code> <code>(T, 2)</code>, a real varying signal (about 0 to 1.7 in the two verified episodes), now stored in the <code>demo_b2_*</code> bundles. The policy still holds grippers at the fixed command because it does not consume that channel yet; a gripper strategy (mapping recorded <code>gripper_pos</code> to the starter repo&#x27;s binary gripper convention) is the next milestone, not a claim made here. Grasp-dependent milestones cannot be earned until that mapping is built and tested. This is the single biggest known gap.</p>
 <ul>
 <li><strong>Fixed-layout assumption, weakened but not removed.</strong> Multi-demo</li>
 </ul>
@@ -72,7 +73,7 @@ docker build -t ecm2027-policy . # policy service image</code></pre>
 <ul>
 <li><strong>Resubmission.</strong> The team understands resubmission is allowed before</li>
 </ul>
-<p>the policy submission deadline of <strong>2026-12-30 12:00 SGT</strong> and will resubmit an improved package (for example with Batch 2 demonstrations) if evaluation feedback calls for it.</p>
+<p>the policy submission deadline of <strong>2026-12-30 12:00 SGT</strong> and will resubmit an improved package (for example with Batch 3 demonstrations) if evaluation feedback calls for it.</p>
 <h2>6. Upstream issue filed</h2>
 <p>While setting up the starter repository the team found and reported a missing-module defect in the official starter code: https://github.com/rocochallenge/ecm2027_sim_track/issues/1 (<code>isaaclab_teleop</code> present in source but not installed; also missing <code>mdp</code> exports). Open with no organizer reply as of 2026-11-04.</p>
 <hr>
