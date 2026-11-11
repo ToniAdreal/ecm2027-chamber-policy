@@ -18,6 +18,19 @@ silently):
 * Arm index 0 is the left arm and index 1 is the right arm, matching the
   ``target_frames`` order in the Galbot scene config
   (``tool_left_hand`` first, ``tool_right_hand`` second).
+
+Batch 2 layout (verified 2026-11-10 against two real Batch 2 recordings
+from ``rocochallenge2025/ecm2027_sim_data``): Batch 2 files do NOT carry
+the combined ``data/<episode>/ee_poses`` dataset. They carry the split
+observation terms ``data/<episode>/obs/eef_pos`` ``(T, 2, 3)`` and
+``data/<episode>/obs/eef_quat`` ``(T, 2, 4)`` instead, plus a real gripper
+observation ``data/<episode>/obs/gripper_pos`` ``(T, 2)`` that Batch 1
+files lack. The quat order is (w, x, y, z), same as Batch 1: at the shared
+fixed rest pose the Batch 2 ``eef_quat`` values match the Batch 1
+``ee_poses`` quaternions frame for frame, which would fail if the order
+were (x, y, z, w). ``load_ee_poses_hdf5`` therefore composes
+``ee_poses`` from the two split terms when the combined dataset is
+absent, and validates the result with the same unit-norm check.
 """
 
 from __future__ import annotations
@@ -66,14 +79,67 @@ def load_ee_poses_npz(path: str | Path) -> np.ndarray:
 
 
 def load_ee_poses_hdf5(path: str | Path, episode_key: str) -> np.ndarray:
-    """Load ee_poses for one episode from a demonstration HDF5 file."""
+    """Load ee_poses for one episode from a demonstration HDF5 file.
+
+    Batch 1 layout: a single ``data/<episode>/ee_poses`` dataset.
+    Batch 2 layout: the split observation terms
+    ``data/<episode>/obs/eef_pos`` and ``data/<episode>/obs/eef_quat``,
+    composed here into the same ``(T, 2, 7)`` ``[x, y, z, qw, qx, qy, qz]``
+    array (quat order (w, x, y, z), verified against Batch 1 at the shared
+    rest pose). Either layout is validated identically.
+    """
     import h5py  # local import: only the extraction tool needs h5py
 
     with h5py.File(Path(path), "r") as handle:
         dataset_path = f"data/{episode_key}/ee_poses"
+        if dataset_path in handle:
+            return validate_ee_poses(handle[dataset_path][:])
+        pos_path = f"data/{episode_key}/obs/eef_pos"
+        quat_path = f"data/{episode_key}/obs/eef_quat"
+        if pos_path in handle and quat_path in handle:
+            pos = np.asarray(handle[pos_path][:], dtype=np.float64)
+            quat = np.asarray(handle[quat_path][:], dtype=np.float64)
+            if pos.shape[0] != quat.shape[0]:
+                raise ValueError(
+                    f"{path} episode {episode_key}: eef_pos has "
+                    f"{pos.shape[0]} steps but eef_quat has {quat.shape[0]}"
+                )
+            return validate_ee_poses(
+                np.concatenate([pos, quat], axis=-1)
+            )
+        raise ValueError(
+            f"{path} does not contain {dataset_path} nor "
+            f"{pos_path} + {quat_path}"
+        )
+
+
+def load_gripper_pos_hdf5(path: str | Path, episode_key: str) -> np.ndarray:
+    """Load the Batch 2 gripper observation for one episode, shape (T, 2).
+
+    Batch 1 files carry no gripper channel, so this raises ValueError
+    there; Batch 2 files carry ``data/<episode>/obs/gripper_pos``. The
+    values are returned as float64 and checked finite only: the policy
+    does not command grippers yet, so no unit or range claim is made
+    here. Recorded range in the two verified Batch 2 episodes is roughly
+    0 to 1.7 with 364 distinct rounded values, i.e. a real varying
+    signal, not a constant.
+    """
+    import h5py  # local import: only the extraction tool needs h5py
+
+    with h5py.File(Path(path), "r") as handle:
+        dataset_path = f"data/{episode_key}/obs/gripper_pos"
         if dataset_path not in handle:
             raise ValueError(f"{path} does not contain {dataset_path}")
-        return validate_ee_poses(handle[dataset_path][:])
+        arr = np.asarray(handle[dataset_path][:], dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(
+            f"gripper_pos must have shape (T, 2), got {arr.shape}"
+        )
+    if arr.shape[0] < 1:
+        raise ValueError("gripper_pos must contain at least one timestep")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("gripper_pos contains NaN or infinite values")
+    return arr
 
 
 def bundle_metadata(path: str | Path) -> dict:

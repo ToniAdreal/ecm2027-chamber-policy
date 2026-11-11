@@ -13,13 +13,19 @@ time, the demo whose first-frame end-effector positions are nearest to the
 robot's observed initial positions (`ecm_policy/multidemo.py`). Selection
 happens only at reset, so a rollout never jumps between demos mid-episode;
 without an observation at reset the first demo is used. The bundled set now
-holds four real Batch 1 episodes (`demo_0`, `demo_2`, `demo_7`, `demo_9`),
-extracted from four independent recordings of the official dataset
+holds six real episodes: four Batch 1 (`demo_0`, `demo_2`, `demo_7`,
+`demo_9`) and two Batch 2 (`demo_b2_0`, `demo_b2_3`), extracted from six
+independent recordings of the official dataset
 (`rocochallenge2025/ecm2027_sim_data`).
 
 The released demonstration data contains dual-arm end-effector pose
 trajectories (`ee_poses`, shape `(T, 2, 7)` =
-`[x, y, z, qw, qx, qy, qz]` per arm). The Galbot-Mobile embodiment in the
+`[x, y, z, qw, qx, qy, qz]` per arm). Batch 1 files carry the combined
+`ee_poses` dataset; Batch 2 files (released 2026-11-10, three days early)
+carry the split observation terms `obs/eef_pos` + `obs/eef_quat` instead,
+composed into the same `(T, 2, 7)` shape by the loader
+(`ecm_policy/trajectory.py`), plus a real gripper observation
+`obs/gripper_pos` `(T, 2)` that Batch 1 files lack. The Galbot-Mobile embodiment in the
 official starter repo is driven by *absolute* differential-IK pose commands
 (`use_relative_mode=False`), so a recorded EE pose can be fed back as the
 commanded pose directly.
@@ -33,28 +39,40 @@ The policy core (`ecm_policy/core.py`, pure NumPy):
   tracking); otherwise it advances one demo step per policy step;
 * commands the demo pose at `phase + lookahead` for both arms;
 * holds both grippers at a fixed configurable command and commands zero
-  wheel velocity, because the released data has neither channel.
+  wheel velocity. The policy does not consume the gripper channel yet,
+  even though Batch 2 bundles now carry a recorded `gripper_pos` signal
+  (see below); it holds the fixed command rather than inventing values.
 
 ### Trade-offs and honest limitations
 
-* **No gripper data (re-confirmed in v2).** The demo trajectories carry no
-  gripper channel, so v2 never changes gripper state (default: open, `+1.0`;
-  the starter repo's binary gripper convention is `< 0` close, `>= 0`
-  open). Grasp-dependent milestones cannot be earned until a gripper
-  strategy exists. This is the single biggest known gap. The absence is now
-  verified across four independent Batch 1 recordings, not just the sample:
-  each recording file contains exactly one `data/demo_*/ee_poses` dataset
-  and nothing else, so no gripper channel exists to extract.
+* **Gripper data exists now, in Batch 2 only (2026-11-10).** Batch 1
+  recordings carry no gripper channel (verified across four independent
+  recordings: each file contains exactly one `data/demo_*/ee_poses`
+  dataset and nothing else). Batch 2 recordings carry
+  `data/demo_*/obs/gripper_pos` `(T, 2)`: in the two verified episodes
+  the signal ranges about 0 to 1.7 with hundreds of distinct values, a
+  real varying signal, and it is now stored in the `demo_b2_*` bundles
+  alongside `ee_poses`. The policy still holds grippers at the fixed
+  command because it does not consume the channel yet; a gripper
+  strategy (mapping recorded `gripper_pos` to the starter repo's binary
+  gripper convention, `< 0` close / `>= 0` open) is the next milestone,
+  not a claim made here. Grasp-dependent milestones still cannot be
+  earned until that mapping is built and tested.
 * **Fixed layout assumption, weakened but not removed.** Multi-demo
   selection picks the closest recorded start layout instead of assuming one
   fixed demo, but replay still assumes the evaluation scene starts near a
   recorded layout (the fixed local scene, `scene04_1.usd`) — the same
   premise the starter repo's own replay tooling uses when it compares
-  replayed EE poses against `replay_state_ee_poses`.
-* **Four demo episodes.** v2 bundles `demo_0` (7,471 steps), `demo_2`
+  replayed EE poses against `replay_state_ee_poses`. The two Batch 2
+  episodes start from the same fixed rest pose as the Batch 1 episodes,
+  so they add trajectory diversity, not start-layout diversity.
+* **Six demo episodes.** v2 bundles `demo_0` (7,471 steps), `demo_2`
   (5,632 steps), `demo_7` (7,566 steps) and `demo_9` (5,122 steps) from
-  Batch 1. Batch 2 data (2026-11-13) can extend the set with the same
-  extraction tool; the multi-demo core makes no per-episode assumptions.
+  Batch 1, plus `demo_b2_0` (4,106 steps) and `demo_b2_3` (4,022 steps)
+  from Batch 2 (recordings `ChamberServiceTask_1792826776425892` and
+  `ChamberServiceTask_1793084008660268`). Batch 3 data (due 2026-11-28)
+  can extend the set with the same extraction tool; the multi-demo core
+  makes no per-episode assumptions.
 * **Quaternion order.** Demo quaternions are interpreted as Isaac Lab
   FrameTransformer order `(w, x, y, z)` (per `ee_frame_quat` /
   `target_quat_w` in the starter repo) and emitted in the same order for
@@ -158,6 +176,22 @@ python tools/extract_demo_trajectory.py \
   --input /path/to/replay_state_ee_poses.hdf5 --episode demo_7 \
   --output data/demo_7_ee_poses.npz
 ```
+
+## Verification status (2026-11-10, Batch 2 milestone)
+
+Verified on a GPU-less VM: the suite is now **39 tests**: 34 pass under
+the system Python (`python3 -m pytest tests/ -q`), with 5 Batch 2
+layout tests skipped there because the system Python has no h5py; those
+5 pass under the data-sample venv Python (`python -m unittest discover
+-s tests`: 36 tests ran, OK), and the 3 pytest-style rollout functions
+also pass when called under the venv Python. Coverage now includes the
+6-demo set (4 Batch 1 + 2 Batch 2), Batch 2 split-obs composition,
+gripper_pos bundling, and full-episode rollouts on the shortest demo
+(`demo_b2_3`, 4,022 steps). **Not verified:** any run inside Isaac Sim
+(no GPU on the development host), the Docker image build (no Docker on
+the development host), and the official submission validation (the
+official Docker service specification and validator had not been
+released as of 2026-11-10). No competition score is claimed.
 
 ## Verification status (2026-11-02, v3)
 

@@ -16,10 +16,12 @@ and a reset with an observation re-selects from scratch. Nothing here
 claims the selected demo matches the evaluation scene; it only removes
 the single-demo assumption that v1 baked in.
 
-The gripper gap is unchanged by this module: Batch 1 recordings contain no
-gripper channel (verified across four independent recordings: demo_0,
-demo_2, demo_7, demo_9), so every wrapped core still holds its grippers at
-the configured fixed command.
+The gripper gap is narrowed but not closed by this module: Batch 1
+recordings contain no gripper channel (verified across four independent
+recordings: demo_0, demo_2, demo_7, demo_9), while Batch 2 recordings do
+carry obs/gripper_pos, now stored in the demo_b2_* bundles. The policy
+still holds its grippers at the configured fixed command because it does
+not consume that channel yet.
 """
 
 from __future__ import annotations

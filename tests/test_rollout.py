@@ -7,12 +7,13 @@ evaluation would need to hold for every step, not just for one reset:
 * every emitted action is finite, 20-dimensional, and carries unit-norm
   quaternions in the stored (w, x, y, z) order;
 * gripper channels stay at the configured fixed command and wheel
-  channels stay at zero for the whole episode (the released data has
-  neither channel, so the policy must not invent values mid-episode);
+  channels stay at zero for the whole episode (Batch 2 bundles now carry
+  a recorded gripper_pos signal, but the policy does not consume it yet,
+  so it must hold the fixed command and not invent values mid-episode);
 * phase is monotonic and reaches the end of the trajectory;
 * a multi-demo rollout never switches demos mid-episode.
 
-The shortest bundled demo (demo_9, 5122 steps) is used so the suite
+The shortest bundled demo (demo_b2_3, 4022 steps) is used so the suite
 stays fast on a CPU-only host; the same invariants hold for the longer
 demos because every core shares the same code path.
 """
@@ -41,7 +42,7 @@ def _check_action(action: np.ndarray) -> None:
 
 
 def test_open_loop_full_episode_reaches_end() -> None:
-    traj = load_ee_poses_npz(DATA_DIR / "demo_9_ee_poses.npz")
+    traj = load_ee_poses_npz(DATA_DIR / "demo_b2_3_ee_poses.npz")
     core = ReplayFollowCore(traj)
     core.reset()
     prev_phase = -1
@@ -61,7 +62,7 @@ def test_open_loop_full_episode_reaches_end() -> None:
 
 
 def test_closed_loop_tracking_follows_true_poses() -> None:
-    traj = load_ee_poses_npz(DATA_DIR / "demo_9_ee_poses.npz")
+    traj = load_ee_poses_npz(DATA_DIR / "demo_b2_3_ee_poses.npz")
     core = ReplayFollowCore(traj)
     core.reset()
     prev_phase = -1

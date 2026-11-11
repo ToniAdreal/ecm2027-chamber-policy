@@ -135,8 +135,11 @@ class MultiDemoServiceTests(unittest.TestCase):
     def test_health_lists_demos(self):
         status, body = self.request("GET", "/health")
         self.assertEqual(status, 200)
-        self.assertEqual(body["num_demos"], 4)
-        self.assertEqual(body["demo_names"], ["demo_0", "demo_2", "demo_7", "demo_9"])
+        self.assertEqual(body["num_demos"], 6)
+        self.assertEqual(
+            body["demo_names"],
+            ["demo_0", "demo_2", "demo_7", "demo_9", "demo_b2_0", "demo_b2_3"],
+        )
         self.assertEqual(body["selected"], "demo_0")
 
     def test_reset_with_observation_selects_demo(self):

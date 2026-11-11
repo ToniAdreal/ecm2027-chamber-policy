@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ecm_policy.trajectory import load_ee_poses_hdf5  # noqa: E402
+from ecm_policy.trajectory import load_ee_poses_hdf5, load_gripper_pos_hdf5  # noqa: E402
 
 
 def main() -> int:
@@ -39,6 +39,10 @@ def main() -> int:
     args = parser.parse_args()
 
     ee_poses = load_ee_poses_hdf5(args.input, args.episode)
+    try:
+        gripper_pos = load_gripper_pos_hdf5(args.input, args.episode)
+    except ValueError:
+        gripper_pos = None  # Batch 1 files carry no gripper channel
     meta = {
         "source_file": Path(args.input).name,
         "episode_key": args.episode,
@@ -46,15 +50,22 @@ def main() -> int:
         "dtype": "float32 (stored), validated as float64",
         "layout": "[x, y, z, qw, qx, qy, qz] per arm; arm 0 = left, arm 1 = right",
         "source_note": args.source_note,
+        "gripper_pos_included": gripper_pos is not None,
     }
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        out,
-        ee_poses=ee_poses.astype(np.float32),
-        meta_json=np.array(json.dumps(meta)),
+    arrays = {
+        "ee_poses": ee_poses.astype(np.float32),
+        "meta_json": np.array(json.dumps(meta)),
+    }
+    if gripper_pos is not None:
+        arrays["gripper_pos"] = gripper_pos.astype(np.float32)
+    np.savez(out, **arrays)
+    print(
+        f"wrote {out}: ee_poses {ee_poses.shape} from {args.input} "
+        f"episode {args.episode}"
+        + (" + gripper_pos " + str(gripper_pos.shape) if gripper_pos is not None else "")
     )
-    print(f"wrote {out}: ee_poses {ee_poses.shape} from {args.input} episode {args.episode}")
     return 0
 
 
