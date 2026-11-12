@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-10 (Beijing)
-**Policy version:** v3.1 — multi-demo replay-follow (Batch 2 integrated)
+**Submission date:** 2026-11-11 (Beijing)
+**Policy version:** v3.2 — multi-demo replay-follow (gripper replay)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `187709553e09ea11ac8fbda11d1582b7579bd3e0`
-("ECM 2027: integrate Batch 2 demos (6-demo set, gripper signal bundled)", 2026-11-10)
+Commit submitted: `d6f2af477af1fc72242c813f7309c3e0565486c6`
+("ECM 2027: replay recorded gripper state (Batch 2, binary convention)", 2026-11-11)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -40,8 +40,14 @@ chamber task in the official simulation (`scene04_1.usd`).
 * It commands the demonstration pose at `phase + lookahead` for both
   arms, as absolute differential-IK pose commands
   (`use_relative_mode=False`, the starter repository's own convention).
-* Both grippers are held at a fixed configurable command and wheel
-  velocity is commanded zero — see the honest limitation in §5.
+* On Batch 2 demonstrations it replays the recorded gripper state:
+  `gripper_pos` is the Galbot gripper joint position (0.0 fully open,
+  1.703 fully closed), thresholded at the range midpoint 0.8515 into
+  the binary gripper action (`< 0` close, `>= 0` open), the starter
+  repository's own `BinaryJointPositionAction` convention. Batch 1
+  demonstrations carry no gripper channel, so on those the grippers
+  are held at a fixed configurable command. Wheel velocity is
+  commanded zero — see the honest limitation in §5.
 
 The bundled set holds six real episodes: four Batch 1 (`demo_0`, `demo_2`,
 `demo_7`, `demo_9`) and two Batch 2 (`demo_b2_0`, `demo_b2_3`), extracted
@@ -75,11 +81,12 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **39 / 39 tests pass** in the repository test suite, measured 2026-11-10
-  (34 pass under the system Python; the 5 Batch 2 layout tests need h5py
+* **50 / 50 tests pass** in the repository test suite, measured 2026-11-11
+  (45 pass under the system Python; the 5 Batch 2 layout tests need h5py
   and pass under the data-sample venv Python), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
-  quaternions, fixed gripper and zero wheels throughout, monotonic phase
+  quaternions, replayed gripper state on Batch 2 demos and fixed gripper
+  on Batch 1 demos, zero wheels throughout, monotonic phase
   to trajectory end, no mid-episode demo switch), multi-demo selection,
   adapter, service, and core tests.
 * The starter repository's 7 supplied lightweight regression tests also
@@ -94,9 +101,9 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 187709553e09ea11ac8fbda11d1582b7579bd3e0
+git checkout d6f2af477af1fc72242c813f7309c3e0565486c6
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 34 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 45 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py)
 docker build -t ecm2027-policy . # policy service image
 ```
@@ -110,18 +117,21 @@ Batch 3 data (due 2026-11-28) can extend the set with the same tool.
 
 ## 5. Honest limitations
 
-* **Gripper data exists now, in Batch 2 only.** Batch 1 recordings carry
-  no gripper channel, verified across all four independent Batch 1
-  recordings (each file contains exactly one `data/demo_*/ee_poses`
-  dataset and nothing else). Batch 2 recordings carry
-  `data/demo_*/obs/gripper_pos` `(T, 2)`, a real varying signal (about 0
-  to 1.7 in the two verified episodes), now stored in the `demo_b2_*`
-  bundles. The policy still holds grippers at the fixed command because
-  it does not consume that channel yet; a gripper strategy (mapping
-  recorded `gripper_pos` to the starter repo's binary gripper convention)
-  is the next milestone, not a claim made here. Grasp-dependent
-  milestones cannot be earned until that mapping is built and tested.
-  This is the single biggest known gap.
+* **Gripper replay is built and tested; the mapping convention is
+  unverified by the organizers.** Batch 1 recordings carry no gripper
+  channel, verified across all four independent Batch 1 recordings
+  (each file contains exactly one `data/demo_*/ee_poses` dataset and
+  nothing else), so Batch 1 cores still hold the fixed command. Batch 2
+  recordings carry `data/demo_*/obs/gripper_pos` `(T, 2)`, a real
+  varying signal (0 to 1.703 in the two verified episodes), now consumed
+  by the policy: full-episode open-loop rollouts replay the recorded
+  gripper state exactly (demo_b2_0: 8 open/close transitions, 58.1%
+  closed; demo_b2_3: 6 transitions, 68% closed). The mapping is the
+  starter repository's own convention (`galbot.py`: gripper joint
+  open/close positions 0.0 / 1.703; `action < 0` closes, `>= 0` opens),
+  but the official evaluation service has never published its expected
+  gripper action scale, so this remains a documented convention, not a
+  validated organizer claim.
 * **Fixed-layout assumption, weakened but not removed.** Multi-demo
   selection picks the closest recorded start layout instead of assuming
   one fixed demonstration, but replay still assumes the evaluation scene
