@@ -113,14 +113,39 @@ def load_ee_poses_hdf5(path: str | Path, episode_key: str) -> np.ndarray:
         )
 
 
+def load_gripper_pos_npz(path: str | Path) -> np.ndarray | None:
+    """Load gripper_pos from an .npz bundle, or None when it has none.
+
+    Batch 1 bundles carry no gripper channel (returns None); Batch 2
+    bundles carry ``gripper_pos`` ``(T, 2)``. Values are the Galbot
+    gripper joint positions: 0.0 is fully open, 1.703 fully closed
+    (``BinaryJointPositionActionCfg`` open/close_command_expr in the
+    official starter repo's Galbot config).
+    """
+    with np.load(Path(path), allow_pickle=False) as bundle:
+        if "gripper_pos" not in bundle:
+            return None
+        arr = np.asarray(bundle["gripper_pos"], dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(
+            f"gripper_pos must have shape (T, 2), got {arr.shape}"
+        )
+    if arr.shape[0] < 1:
+        raise ValueError("gripper_pos must contain at least one timestep")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("gripper_pos contains NaN or infinite values")
+    return arr
+
+
 def load_gripper_pos_hdf5(path: str | Path, episode_key: str) -> np.ndarray:
     """Load the Batch 2 gripper observation for one episode, shape (T, 2).
 
     Batch 1 files carry no gripper channel, so this raises ValueError
     there; Batch 2 files carry ``data/<episode>/obs/gripper_pos``. The
     values are returned as float64 and checked finite only: the policy
-    does not command grippers yet, so no unit or range claim is made
-    here. Recorded range in the two verified Batch 2 episodes is roughly
+    maps them to the starter repo's binary gripper convention
+    (joint 0.0 open / 1.703 closed, ``< 0`` close / ``>= 0`` open).
+    Recorded range in the two verified Batch 2 episodes is roughly
     0 to 1.7 with 364 distinct rounded values, i.e. a real varying
     signal, not a constant.
     """

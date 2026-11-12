@@ -41,7 +41,6 @@ import numpy as np
 
 from .core import ReplayFollowCore
 from .multidemo import MultiDemoCore
-from .trajectory import load_ee_poses_npz
 
 POLICY_NAME = "twin-teleop-replay-follow"
 POLICY_VERSION = "0.3.0"
@@ -194,11 +193,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.trajectory:
-        ee_poses = load_ee_poses_npz(args.trajectory)
-        core = ReplayFollowCore(
-            ee_poses, actions_dim=args.actions_dim, lookahead=args.lookahead
+        core = ReplayFollowCore.from_npz(
+            args.trajectory, actions_dim=args.actions_dim, lookahead=args.lookahead
         )
-        core_desc = f"trajectory steps={core.num_steps}"
+        core_desc = f"trajectory steps={core.num_steps} gripper={core.gripper_mode}"
     else:
         demo_dir = args.trajectory_dir or str(DEFAULT_TRAJECTORY_DIR)
         core = MultiDemoCore.from_npz_dir(

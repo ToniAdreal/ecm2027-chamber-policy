@@ -16,24 +16,37 @@ core therefore:
   search window (closed-loop phase tracking, tolerant to timing drift);
 * otherwise advances the phase one demo step per policy step (open loop);
 * commands the demo pose at ``phase + lookahead`` for both arms;
-* holds both grippers at a fixed configurable command and commands zero
-  wheel velocity, because the released data contains neither channel.
+* replays the recorded gripper state when the demo carries one: Batch 2
+  bundles store ``gripper_pos`` ``(T, 2)``, the Galbot gripper joint
+  positions (0.0 fully open, 1.703 fully closed, per the starter repo's
+  ``BinaryJointPositionActionCfg``), thresholded at the joint-range
+  midpoint 0.8515 into the binary gripper action (``< 0`` close,
+  ``>= 0`` open, per the starter repo's ``BinaryJointPositionAction``
+  convention). Demos without a gripper channel (all of Batch 1) still
+  hold both grippers at a fixed configurable command, and the policy
+  commands zero wheel velocity throughout.
 
 Action layout (Galbot-Mobile, 20 dims, from the starter repo):
 ``[left pose 7, right pose 7, left gripper 1, right gripper 1, wheels 4]``.
 The fixed-base Galbot-Abs layout drops the wheels (16 dims). Gripper sign
-convention follows the starter repo's teleop preprocessing comment for the
-Isaac Lab binary joint-position action: ``action < 0`` closes, ``>= 0``
-opens. Arm pose quaternions are emitted in Isaac Lab's native ``(w, x, y,
-z)`` order by default; set ``action_quat_order="xyzw"`` to reorder on
-output if the official validator publishes a different convention (the
-official Docker service schema was still unpublished as of 2026-10-31).
+convention follows the starter repo's Galbot config
+(``galbot.py: preprocess_device_action``): the device-level ``+1.0``
+close press is inverted to ``-1.0`` before the env action vector, i.e.
+in the emitted action ``< 0`` closes and ``>= 0`` opens. Arm pose
+quaternions are emitted in Isaac Lab's native ``(w, x, y, z)`` order by
+default; set ``action_quat_order="xyzw"`` to reorder on output if the
+official validator publishes a different convention (the official Docker
+service schema was still unpublished as of 2026-10-31).
 
-Known v1 limitations, stated plainly: with no gripper channel in the data,
-the grippers never change state, so grasp-dependent milestones cannot be
-earned by this policy as-is; and replay assumes the evaluation scene's
-initial layout matches the demo recording (the same fixed local scene the
-starter repo's own replay tooling assumes).
+Known v1 limitations, stated plainly: Batch 1 demos carry no gripper
+channel, so on those demos the grippers never change state and
+grasp-dependent milestones cannot be earned by this policy as-is; and
+replay assumes the evaluation scene's initial layout matches the demo
+recording (the same fixed local scene the starter repo's own replay
+tooling assumes). The binary gripper mapping itself is the starter
+repo's own convention, but the official evaluation service has never
+published its expected gripper action scale, so the mapping is
+documented here rather than silently assumed.
 """
 
 from __future__ import annotations
@@ -42,12 +55,43 @@ from pathlib import Path
 
 import numpy as np
 
-from .trajectory import load_ee_poses_hdf5, load_ee_poses_npz
+from .trajectory import (
+    load_ee_poses_hdf5,
+    load_ee_poses_npz,
+    load_gripper_pos_hdf5,
+    load_gripper_pos_npz,
+)
 
 POSE_DIM = 7
 NUM_ARMS = 2
 BASE_ACTION_DIM = 16  # 2 arms * 7 + 2 grippers
 MOBILE_ACTION_DIM = 20  # + 4 wheels
+
+# Galbot gripper joint range, from the starter repo's Galbot config
+# (BinaryJointPositionActionCfg open/close_command_expr): 0.0 is fully
+# open, 1.703 fully closed. The binary gripper action is < 0 close,
+# >= 0 open. The replay threshold is the joint-range midpoint; the two
+# verified Batch 2 episodes are strongly bimodal around it (39.7% of
+# samples < 0.05, most of the rest in 1.13-1.70, sparse transition band).
+GRIPPER_JOINT_OPEN = 0.0
+GRIPPER_JOINT_CLOSED = 1.703
+GRIPPER_THRESHOLD = (GRIPPER_JOINT_OPEN + GRIPPER_JOINT_CLOSED) / 2.0
+GRIPPER_CLOSE_CMD = -1.0
+GRIPPER_OPEN_CMD = 1.0
+
+
+def _gripper_commands_for(gripper_pos_row: np.ndarray) -> np.ndarray:
+    """Binary gripper commands for one recorded gripper_pos row (2,).
+
+    Joint position at or above the range midpoint means the demo's
+    gripper was closed there, so emit the close command (< 0); below
+    it, emit the open command (>= 0).
+    """
+    return np.where(
+        np.asarray(gripper_pos_row, dtype=np.float64) >= GRIPPER_THRESHOLD,
+        GRIPPER_CLOSE_CMD,
+        GRIPPER_OPEN_CMD,
+    )
 
 
 def _normalize_quats(quats: np.ndarray) -> np.ndarray:
@@ -75,6 +119,7 @@ class ReplayFollowCore:
         phase_window: int = 250,
         gripper_left: float = 1.0,
         gripper_right: float = 1.0,
+        gripper_pos: np.ndarray | None = None,
         action_quat_order: str = "wxyz",
     ):
         traj = np.asarray(ee_poses, dtype=np.float64)
@@ -82,6 +127,18 @@ class ReplayFollowCore:
             raise ValueError(f"ee_poses must have shape (T, 2, 7), got {traj.shape}")
         if not np.all(np.isfinite(traj)):
             raise ValueError("ee_poses contains NaN or infinite values")
+        if gripper_pos is not None:
+            grip = np.asarray(gripper_pos, dtype=np.float64)
+            if grip.ndim != 2 or tuple(grip.shape) != (traj.shape[0], NUM_ARMS):
+                raise ValueError(
+                    "gripper_pos must have shape (T, 2) matching ee_poses, "
+                    f"got {grip.shape} for {traj.shape[0]} steps"
+                )
+            if not np.all(np.isfinite(grip)):
+                raise ValueError("gripper_pos contains NaN or infinite values")
+            self._gripper_pos = grip.copy()
+        else:
+            self._gripper_pos = None
         if actions_dim < BASE_ACTION_DIM:
             raise ValueError(
                 f"actions_dim must be >= {BASE_ACTION_DIM}, got {actions_dim}"
@@ -105,10 +162,17 @@ class ReplayFollowCore:
 
     @classmethod
     def from_npz(cls, path: str | Path, **kwargs) -> "ReplayFollowCore":
+        if "gripper_pos" not in kwargs:
+            kwargs["gripper_pos"] = load_gripper_pos_npz(path)
         return cls(load_ee_poses_npz(path), **kwargs)
 
     @classmethod
     def from_hdf5(cls, path: str | Path, episode_key: str, **kwargs) -> "ReplayFollowCore":
+        if "gripper_pos" not in kwargs:
+            try:
+                kwargs["gripper_pos"] = load_gripper_pos_hdf5(path, episode_key)
+            except ValueError:
+                kwargs["gripper_pos"] = None
         return cls(load_ee_poses_hdf5(path, episode_key), **kwargs)
 
     # -- introspection --------------------------------------------------------
@@ -142,6 +206,11 @@ class ReplayFollowCore:
             )
         self.actions_dim = int(actions_dim)
 
+    @property
+    def gripper_mode(self) -> str:
+        """'replay' when a recorded gripper channel is consumed, else 'fixed'."""
+        return "replay" if self._gripper_pos is not None else "fixed"
+
     def health(self) -> dict:
         return {
             "status": "ok",
@@ -149,6 +218,7 @@ class ReplayFollowCore:
             "closed": self._closed,
             "trajectory_steps": self.num_steps,
             "actions_dim": self.actions_dim,
+            "gripper_mode": self.gripper_mode,
             "phase": self._phase,
             "steps_taken": self._steps,
         }
@@ -180,7 +250,7 @@ class ReplayFollowCore:
         else:
             self._phase = max(self._phase, min(self._steps, self.num_steps - 1))
         target = min(self._phase + self.lookahead, self.num_steps - 1)
-        action = self._assemble(self._traj[target])
+        action = self._assemble(self._traj[target], target)
         self._steps += 1
         info = {
             "phase": self._phase,
@@ -227,14 +297,17 @@ class ReplayFollowCore:
         dist = np.linalg.norm(window - ee_pos[None, :, :], axis=-1).mean(axis=-1)
         return start + int(np.argmin(dist))
 
-    def _assemble(self, pose_pair: np.ndarray) -> np.ndarray:
+    def _assemble(self, pose_pair: np.ndarray, target_index: int) -> np.ndarray:
         parts = []
         for arm in range(NUM_ARMS):
             pose = np.array(pose_pair[arm], dtype=np.float64)
             if self.action_quat_order == "xyzw":
                 pose[3:7] = pose[[4, 5, 6, 3]]  # stored wxyz -> xyzw
             parts.append(pose)
-        parts.append(np.array([self.gripper_left, self.gripper_right]))
+        if self._gripper_pos is not None:
+            parts.append(_gripper_commands_for(self._gripper_pos[target_index]))
+        else:
+            parts.append(np.array([self.gripper_left, self.gripper_right]))
         action = np.concatenate(parts)
         if self.actions_dim > BASE_ACTION_DIM:
             action = np.concatenate(

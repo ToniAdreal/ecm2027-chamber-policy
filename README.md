@@ -38,26 +38,35 @@ The policy core (`ecm_policy/core.py`, pure NumPy):
   point nearest the current pose within a forward window (closed-loop phase
   tracking); otherwise it advances one demo step per policy step;
 * commands the demo pose at `phase + lookahead` for both arms;
-* holds both grippers at a fixed configurable command and commands zero
-  wheel velocity. The policy does not consume the gripper channel yet,
-  even though Batch 2 bundles now carry a recorded `gripper_pos` signal
-  (see below); it holds the fixed command rather than inventing values.
+* replays the recorded gripper state when the demo carries one
+  (Batch 2): `gripper_pos` is the Galbot gripper joint position
+  (0.0 fully open, 1.703 fully closed, per the starter repo's
+  `BinaryJointPositionActionCfg`), thresholded at the range midpoint
+  0.8515 into the binary gripper action (`< 0` close, `>= 0` open).
+  Batch 1 demos carry no gripper channel and still hold both grippers
+  at the fixed configurable command. Wheel velocity is zero throughout.
 
 ### Trade-offs and honest limitations
 
-* **Gripper data exists now, in Batch 2 only (2026-11-10).** Batch 1
-  recordings carry no gripper channel (verified across four independent
-  recordings: each file contains exactly one `data/demo_*/ee_poses`
-  dataset and nothing else). Batch 2 recordings carry
+* **Gripper replay is built and tested (2026-11-11, milestone 6).**
+  Batch 1 recordings carry no gripper channel (verified across four
+  independent recordings: each file contains exactly one
+  `data/demo_*/ee_poses` dataset and nothing else), so Batch 1 cores
+  still hold the fixed command. Batch 2 recordings carry
   `data/demo_*/obs/gripper_pos` `(T, 2)`: in the two verified episodes
-  the signal ranges about 0 to 1.7 with hundreds of distinct values, a
-  real varying signal, and it is now stored in the `demo_b2_*` bundles
-  alongside `ee_poses`. The policy still holds grippers at the fixed
-  command because it does not consume the channel yet; a gripper
-  strategy (mapping recorded `gripper_pos` to the starter repo's binary
-  gripper convention, `< 0` close / `>= 0` open) is the next milestone,
-  not a claim made here. Grasp-dependent milestones still cannot be
-  earned until that mapping is built and tested.
+  the signal ranges 0 to 1.703 with hundreds of distinct values, is
+  strongly bimodal (39.7% of samples < 0.05, most of the rest in
+  1.13-1.70), and the two arms' thresholded states agree on 100% of
+  steps. The mapping is the starter repo's own convention, verified
+  in its code, not invented: `galbot.py` sets the gripper joint
+  open/close positions to 0.0 / 1.703 and its `preprocess_device_action`
+  states `action < 0` closes and `>= 0` opens. Full-episode open-loop
+  rollouts replay the recorded gripper state exactly (demo_b2_0:
+  8 open/close transitions, 58.1% closed; demo_b2_3: 6 transitions,
+  68% closed). The official evaluation service has still never
+  published its expected gripper action scale, so the mapping is
+  documented as the starter repo's convention, not as a validated
+  organizer claim.
 * **Fixed layout assumption, weakened but not removed.** Multi-demo
   selection picks the closest recorded start layout instead of assuming one
   fixed demo, but replay still assumes the evaluation scene starts near a
@@ -176,6 +185,24 @@ python tools/extract_demo_trajectory.py \
   --input /path/to/replay_state_ee_poses.hdf5 --episode demo_7 \
   --output data/demo_7_ee_poses.npz
 ```
+
+## Verification status (2026-11-11, gripper-replay milestone 6)
+
+Verified on a GPU-less VM: the suite is now **50 tests**: 45 pass under
+the system Python (`python3 -m pytest tests/ -q`), with 5 Batch 2
+layout tests skipped there because the system Python has no h5py; those
+5 pass under the data-sample venv Python (`python -m unittest discover
+-s tests`: 47 tests ran, OK), and the 3 pytest-style rollout functions
+also pass when called under the venv Python. Coverage now includes the
+6-demo set (4 Batch 1 + 2 Batch 2), Batch 2 split-obs composition,
+gripper_pos bundling, gripper replay (threshold mapping, fixed fallback,
+full-episode open-loop replay on both Batch 2 episodes, mixed-directory
+multi-demo modes), and full-episode rollouts on the shortest demo
+(`demo_b2_3`, 4,022 steps). **Not verified:** any run inside Isaac Sim
+(no GPU on the development host), the Docker image build (no Docker on
+the development host), and the official submission validation (the
+official Docker service specification and validator had not been
+released as of 2026-11-11). No competition score is claimed.
 
 ## Verification status (2026-11-10, Batch 2 milestone)
 

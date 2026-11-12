@@ -16,12 +16,13 @@ and a reset with an observation re-selects from scratch. Nothing here
 claims the selected demo matches the evaluation scene; it only removes
 the single-demo assumption that v1 baked in.
 
-The gripper gap is narrowed but not closed by this module: Batch 1
+The gripper gap is closed for Batch 2 demos by this module: Batch 1
 recordings contain no gripper channel (verified across four independent
 recordings: demo_0, demo_2, demo_7, demo_9), while Batch 2 recordings do
-carry obs/gripper_pos, now stored in the demo_b2_* bundles. The policy
-still holds its grippers at the configured fixed command because it does
-not consume that channel yet.
+carry obs/gripper_pos, stored in the demo_b2_* bundles and now consumed
+by each wrapped core (recorded joint position thresholded at the
+0.0-1.703 range midpoint into the binary open/close action). Batch 1
+cores still hold their grippers at the configured fixed command.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from .core import ReplayFollowCore
-from .trajectory import load_ee_poses_npz
+from .trajectory import load_ee_poses_npz, load_gripper_pos_npz
 
 
 class MultiDemoCore:
@@ -40,13 +41,22 @@ class MultiDemoCore:
     def __init__(
         self,
         demos: dict[str, np.ndarray],
+        gripper_poses: dict[str, np.ndarray] | None = None,
         **core_kwargs,
     ):
         if not demos:
             raise ValueError("MultiDemoCore needs at least one demo")
         self._names: list[str] = list(demos.keys())
         self._cores: dict[str, ReplayFollowCore] = {
-            name: ReplayFollowCore(np.asarray(traj), **core_kwargs)
+            name: ReplayFollowCore(
+                np.asarray(traj),
+                gripper_pos=(
+                    None
+                    if gripper_poses is None
+                    else gripper_poses.get(name)
+                ),
+                **core_kwargs,
+            )
             for name, traj in demos.items()
         }
         self._selected: str = self._names[0]
@@ -72,6 +82,7 @@ class MultiDemoCore:
         if not paths:
             raise ValueError(f"no demo bundles matching {pattern!r} in {directory}")
         demos = {}
+        gripper_poses = {}
         for path in paths:
             name = path.name
             if name.endswith("_ee_poses.npz"):
@@ -79,7 +90,10 @@ class MultiDemoCore:
             else:
                 name = path.stem
             demos[name] = load_ee_poses_npz(path)
-        return cls(demos, **core_kwargs)
+            grip = load_gripper_pos_npz(path)
+            if grip is not None:
+                gripper_poses[name] = grip
+        return cls(demos, gripper_poses=gripper_poses, **core_kwargs)
 
     # -- introspection --------------------------------------------------------
 
