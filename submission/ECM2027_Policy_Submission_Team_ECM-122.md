@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-11 (Beijing)
-**Policy version:** v3.2 — multi-demo replay-follow (gripper replay)
+**Submission date:** 2026-11-13 (Beijing)
+**Policy version:** v3.3 — multi-demo replay-follow (gripper replay + lagged-follower evaluation)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `d6f2af477af1fc72242c813f7309c3e0565486c6`
-("ECM 2027: replay recorded gripper state (Batch 2, binary convention)", 2026-11-11)
+Commit submitted: `6c174aed4f4088c01907e3e7e935a8c419e7559b`
+("ECM 2027 M7: lagged-follower evaluation harness (6 demos x 4 alphas, 56 tests green)", 2026-11-12)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -111,7 +111,7 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout d6f2af477af1fc72242c813f7309c3e0565486c6
+git checkout 6c174aed4f4088c01907e3e7e935a8c419e7559b
 pip install -r requirements.txt   # numpy only
 python3 -m pytest tests/ -q      # expect: 51 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py)
