@@ -186,6 +186,53 @@ python tools/extract_demo_trajectory.py \
   --output data/demo_7_ee_poses.npz
 ```
 
+## Verification status (2026-11-12, lagged-follower evaluation milestone 7)
+
+New offline evaluation harness (`ecm_policy/evaluate.py`,
+`tools/evaluate_policy.py`): the simulated robot moves a fraction
+`alpha` of the way toward each commanded pose per step (first-order
+lag on position, normalized lerp on orientation), the policy observes
+the robot's actual EE positions and re-anchors its phase, and the
+rollout is scored against the recorded demonstration at the same step
+index. Full table in `evaluation/results.md` (also `results.json`).
+
+Measured on the 6 bundled demos at `alpha` 0.1 / 0.3 / 0.5 / 1.0:
+
+* **Perfect follower (`alpha = 1.0`) reproduces every recording
+  exactly**: zero position error, orientation error at float-noise
+  level (~1e-6 deg), zero phase lag, final phase at the last demo
+  step. This is the harness's own sanity check, and it passes on all
+  6 demos.
+* **Max phase lag strictly decreases as the follower gets faster** on
+  all 6 demos (e.g. demo_0: 6,780 → 5,265 → 3,730 → 0 steps):
+  closed-loop re-anchoring keeps the policy glued to the robot's
+  actual pose instead of drifting.
+* **Gripper agreement rises with `alpha`** on both Batch 2 demos
+  (demo_b2_0: 41.9% → 53.3% → 61.4% → 99.8%; demo_b2_3: 32.0% →
+  51.3% → 68.0% → 99.9%), measured against the recorded gripper
+  state at the same step index. The remaining ~0.1–0.2% at
+  `alpha = 1.0` is the one-step lookahead at gripper transitions.
+* **Honest baseline, not a success claim:** at `alpha` 0.1–0.5 the
+  lagging follower cannot keep wall-clock pace with the recording —
+  mean position error 0.50–0.70 m across demos, and at `alpha = 0.5`
+  the policy only reaches about half the demo by the final step
+  (final phase 2,053 of 4,106 on demo_b2_0). Mean position error is
+  NOT monotonic in `alpha` (demo_0: 0.52 → 0.58 → 0.62 m) and is
+  reported as measured, not forced into a trend. **Not verified:**
+  any run inside Isaac Sim (no GPU on the development host), the
+  Docker image build (no Docker on the development host), and the
+  official submission validation (the official Docker service
+  specification and validator had not been released as of 2026-11-12).
+  No competition score is claimed.
+
+The suite is now **56 tests**: 51 pass under the system Python
+(`python3 -m pytest tests/ -q`), with 5 Batch 2 layout tests skipped
+there because the system Python has no h5py; those 5 pass under the
+data-sample venv Python. The 6 new tests cover the harness itself:
+perfect-follower exactness, phase-lag and gripper-agreement
+monotonicity in `alpha`, determinism to ~1e-9 relative, all-demo
+clean runs, and invalid-`alpha` rejection.
+
 ## Verification status (2026-11-11, gripper-replay milestone 6)
 
 Verified on a GPU-less VM: the suite is now **50 tests**: 45 pass under

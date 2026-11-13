@@ -81,14 +81,24 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **50 / 50 tests pass** in the repository test suite, measured 2026-11-11
-  (45 pass under the system Python; the 5 Batch 2 layout tests need h5py
+* **56 / 56 tests pass** in the repository test suite, measured 2026-11-12
+  (51 pass under the system Python; the 5 Batch 2 layout tests need h5py
   and pass under the data-sample venv Python), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 demos and fixed gripper
   on Batch 1 demos, zero wheels throughout, monotonic phase
   to trajectory end, no mid-episode demo switch), multi-demo selection,
   adapter, service, and core tests.
+* Offline lagged-follower evaluation (`ecm_policy/evaluate.py`, full
+  table in `evaluation/results.md`): a simulated robot that moves a
+  fraction `alpha` of the way toward each commanded pose per step.
+  At `alpha = 1.0` the policy reproduces every bundled recording
+  exactly (zero position error, zero phase lag); max phase lag strictly
+  decreases as the follower gets faster on all 6 demos; gripper
+  agreement on Batch 2 rises with `alpha` (32–42% at `alpha = 0.1`
+  to 99.8–99.9% at `alpha = 1.0`). At `alpha` 0.1–0.5 the lagging
+  follower cannot keep wall-clock pace (mean position error
+  0.50–0.70 m) — reported as a baseline, not a score.
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on
@@ -103,7 +113,7 @@ git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
 git checkout d6f2af477af1fc72242c813f7309c3e0565486c6
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 45 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 51 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py)
 docker build -t ecm2027-policy . # policy service image
 ```
