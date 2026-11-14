@@ -3,7 +3,7 @@
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
 **Submission date:** 2026-11-13 (Beijing)
-**Policy version:** v3.3 — multi-demo replay-follow (gripper replay + lagged-follower evaluation)
+**Policy version:** v3.4 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep; submission default lookahead 2)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `6c174aed4f4088c01907e3e7e935a8c419e7559b`
-("ECM 2027 M7: lagged-follower evaluation harness (6 demos x 4 alphas, 56 tests green)", 2026-11-12)
+Commit submitted: `1c4deaf2e8c17c54be7838c873b8af303cd33a50`
+("ECM 2027 M8: lookahead sweep (6 demos x alpha 0.3/0.5 x lookahead 0/1/2/4/8, 62 tests green)", 2026-11-13)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -81,9 +81,10 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **56 / 56 tests pass** in the repository test suite, measured 2026-11-12
-  (51 pass under the system Python; the 5 Batch 2 layout tests need h5py
-  and pass under the data-sample venv Python), including:
+* **62 / 62 tests pass** in the repository test suite, measured 2026-11-13
+  in an isolated clone at the submitted commit (57 pass under the system
+  Python; the 5 Batch 2 layout tests need h5py and pass under the
+  data-sample venv Python, where the full suite runs 62/62), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 demos and fixed gripper
   on Batch 1 demos, zero wheels throughout, monotonic phase
@@ -99,6 +100,16 @@ publishes.
   to 99.8–99.9% at `alpha = 1.0`). At `alpha` 0.1–0.5 the lagging
   follower cannot keep wall-clock pace (mean position error
   0.50–0.70 m) — reported as a baseline, not a score.
+* Lookahead sweep (`tools/sweep_lookahead.py`, full table in
+  `evaluation/lookahead_sweep.md`): every bundled demo at `alpha` 0.3 /
+  0.5 for lookaheads 0 / 1 / 2 / 4 / 8. Lookahead 2 is the submission
+  default: it beats lookahead 1 at both swept alphas on demo-averaged
+  mean position error (0.609 vs 0.618 m at `alpha = 0.3`; 0.010 vs
+  0.618 m at `alpha = 0.5`), while lookahead 4 wins only at 0.3 and
+  lookahead 0 stalls the phase tracker outright (final phase 0). The
+  near-perfect `alpha = 0.5` / lookahead-2 result is a property of the
+  harness's first-order lag model, not a measurement of real Isaac Sim
+  dynamics, and is reported as such.
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on
@@ -111,10 +122,11 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 6c174aed4f4088c01907e3e7e935a8c419e7559b
+git checkout 1c4deaf2e8c17c54be7838c873b8af303cd33a50
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 51 passed, 5 skipped (the 5
-                                 # Batch 2 layout tests need h5py)
+python3 -m pytest tests/ -q      # expect: 57 passed, 5 skipped (the 5
+                                 # Batch 2 layout tests need h5py;
+                                 # with h5py installed: 62 passed)
 docker build -t ecm2027-policy . # policy service image
 ```
 
