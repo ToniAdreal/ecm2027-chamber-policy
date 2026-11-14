@@ -60,6 +60,7 @@ class LaggedFollowerResult:
     max_phase_lag: int
     final_phase: int
     gripper_agreement: float | None  # None for demos without a gripper channel
+    lookahead: int = 1  # demo steps ahead of the tracked phase the policy commands
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -101,7 +102,10 @@ def evaluate_lagged_follower(
     """Run one demo end to end against a lagged follower and score it."""
     if not (0.0 < alpha <= 1.0):
         raise ValueError(f"alpha must be in (0, 1], got {alpha}")
-    traj = np.asarray(ee_poses, dtype=np.float64)
+    traj = np.array(ee_poses, dtype=np.float64)  # copy: normalizing below
+    # must not mutate the caller's array, or a second run on the same
+    # array would see already-normalized quats and differ in the 10th
+    # decimal (caught by the M8 determinism test).
     # Score against the same normalized quaternions the core stores:
     # recorded quats are not exactly unit-norm (norms 0.9999999–
     # 1.0000003 in demo_b2_3), and scoring the normalized robot pose
@@ -171,6 +175,7 @@ def evaluate_lagged_follower(
         gripper_agreement=(
             (gripper_match / gripper_total) if gripper_total else None
         ),
+        lookahead=int(lookahead),
     )
 
 
@@ -178,6 +183,7 @@ def evaluate_all_demos(
     data_dir,
     *,
     alphas=DEFAULT_ALPHAS,
+    lookahead: int = 1,
 ) -> list[LaggedFollowerResult]:
     """Evaluate every bundled demo at every lag fraction, in filename order."""
     from pathlib import Path
@@ -192,7 +198,11 @@ def evaluate_all_demos(
         for alpha in alphas:
             results.append(
                 evaluate_lagged_follower(
-                    traj, demo=name, alpha=alpha, gripper_pos=grip
+                    traj,
+                    demo=name,
+                    alpha=alpha,
+                    lookahead=lookahead,
+                    gripper_pos=grip,
                 )
             )
     return results

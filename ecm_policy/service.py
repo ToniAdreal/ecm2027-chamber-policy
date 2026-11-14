@@ -187,7 +187,10 @@ def main(argv: list[str] | None = None) -> int:
                              "mode (default: package data/ when --trajectory "
                              "is not given)")
     parser.add_argument("--actions-dim", type=int, default=20)
-    parser.add_argument("--lookahead", type=int, default=1)
+    # Default lookahead 2 (was 1): M8 sweep, 2026-11-13 — lookahead 2
+    # beats 1 at both swept alphas (alpha 0.3 / 0.5) on demo-averaged
+    # mean position error; see tools/sweep_lookahead.py.
+    parser.add_argument("--lookahead", type=int, default=2)
     parser.add_argument("--no-shutdown-on-close", action="store_true",
                         help="keep serving after /close (useful for local tests)")
     args = parser.parse_args(argv)

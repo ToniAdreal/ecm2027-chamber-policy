@@ -84,7 +84,14 @@ class ChamberReplayPolicy(BasePolicy):
         """
         core_kwargs = dict(
             actions_dim=int(usr_args.get("actions_dim", 20)),
-            lookahead=int(usr_args.get("policy_lookahead", 1)),
+            # Default lookahead 2 (was 1): the M8 lookahead sweep
+            # (2026-11-13, tools/sweep_lookahead.py, 6 demos x alpha
+            # 0.3/0.5) found lookahead 2 beats 1 at both swept alphas
+            # on demo-averaged mean position error (0.609 vs 0.618 m
+            # at alpha 0.3; 0.010 vs 0.618 m at alpha 0.5), while
+            # lookahead 4 wins only at 0.3 and loses badly at 0.5.
+            # The evaluator can still override via policy_lookahead.
+            lookahead=int(usr_args.get("policy_lookahead", 2)),
             phase_window=int(usr_args.get("policy_phase_window", 250)),
             gripper_left=float(usr_args.get("policy_gripper_left", 1.0)),
             gripper_right=float(usr_args.get("policy_gripper_right", 1.0)),

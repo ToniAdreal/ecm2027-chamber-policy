@@ -156,8 +156,8 @@ class AdapterRolloutTests(unittest.TestCase):
         policy.reset_model()
         policy.eval(env, obs, usr_args, None)
         first = env.actions_seen[0][0]
-        np.testing.assert_allclose(first[0:7], DEMO[1, 0], atol=1e-6)
-        np.testing.assert_allclose(first[7:14], DEMO[1, 1], atol=1e-6)
+        np.testing.assert_allclose(first[0:7], DEMO[2, 0], atol=1e-6)
+        np.testing.assert_allclose(first[7:14], DEMO[2, 1], atol=1e-6)
 
     def test_multidemo_selects_from_initial_observation(self):
         # Multi-demo mode: initial obs at demo_9's start must select demo_9,
@@ -180,8 +180,8 @@ class AdapterRolloutTests(unittest.TestCase):
             )
         self.assertEqual(diag["selected_demo"], "demo_9")
         first = env.actions_seen[0][0]
-        np.testing.assert_allclose(first[0:7], DEMO_9[1, 0], atol=1e-6)
-        np.testing.assert_allclose(first[7:14], DEMO_9[1, 1], atol=1e-6)
+        np.testing.assert_allclose(first[0:7], DEMO_9[2, 0], atol=1e-6)
+        np.testing.assert_allclose(first[7:14], DEMO_9[2, 1], atol=1e-6)
 
     def test_multidemo_defaults_to_first_demo_without_ee(self):
         policy, usr_args = make_policy(
@@ -192,7 +192,7 @@ class AdapterRolloutTests(unittest.TestCase):
         policy.eval(env, {}, usr_args, None)
         first = env.actions_seen[0][0]
         demo_0 = load_ee_poses_npz(PACKAGE_ROOT / "data" / "demo_0_ee_poses.npz")
-        np.testing.assert_allclose(first[0:7], demo_0[1, 0], atol=1e-6)
+        np.testing.assert_allclose(first[0:7], demo_0[2, 0], atol=1e-6)
 
 
 if __name__ == "__main__":

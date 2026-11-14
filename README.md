@@ -186,6 +186,57 @@ python tools/extract_demo_trajectory.py \
   --output data/demo_7_ee_poses.npz
 ```
 
+## Verification status (2026-11-13, lookahead-sweep milestone 8)
+
+Lookahead sweep (`ecm_policy/evaluate.py`, `tools/sweep_lookahead.py`):
+every bundled demo at `alpha` 0.3 / 0.5 for lookaheads 0 / 1 / 2 / 4 / 8
+(60 full rollouts). Full table in `evaluation/lookahead_sweep.md`
+(also `lookahead_sweep.json`). Demo-averaged mean position error:
+
+| alpha | lookahead 0 | 1 | 2 | 4 | 8 |
+|---|---|---|---|---|---|
+| 0.3 | 1.086 m | 0.618 m | 0.609 m | **0.514 m** | 0.719 m |
+| 0.5 | 1.086 m | 0.618 m | **0.010 m** | 0.703 m | 0.759 m |
+
+* **Lookahead 0 stalls the closed-loop tracker.** The policy commands
+  the pose the robot is already on, so the nearest-point phase never
+  advances: final phase 0 on every demo, mean phase lag ~2,826 steps,
+  mean position error 1.086 m — identical at both alphas, because the
+  robot never moves. Lookahead must be >= 1 for closed-loop tracking.
+  This is a property of the nearest-point tracker, pinned by test.
+* **Lookahead 2 is the robust submission default.** It beats lookahead 1
+  at both swept alphas (0.609 vs 0.618 m at 0.3; 0.010 vs 0.618 m at
+  0.5), and at alpha 0.5 it nearly eliminates tracking error on all 6
+  demos independently (mean position error 0.003–0.016 m, orientation
+  0.33–1.21 deg, gripper agreement 99.7–99.9% on the Batch 2 demos).
+  Lookahead 4 wins only at alpha 0.3 and loses badly at 0.5, so it is
+  not the default. The submission entry points (`ecm_policy/adapter.py`
+  `policy_lookahead`, `ecm_policy/service.py` `--lookahead`) now default
+  to 2; the evaluator can still override it. The core default stays 1.
+* **Honest scope:** the near-perfect alpha-0.5 result is a property of
+  the harness's first-order lag model (the robot closes a fixed fraction
+  of the gap per step), not a measurement of real Isaac Sim dynamics.
+  The real evaluator's follower lag is unknown, which is exactly why
+  the sweep reports both alphas and the default is the robust choice
+  across them, not the best at one. **Not verified:** any run inside
+  Isaac Sim (no GPU on the development host), the Docker image build
+  (no Docker on the development host), and the official submission
+  validation (the official Docker service specification and validator
+  had not been released as of 2026-11-13). No competition score is
+  claimed.
+* The sweep also fixed a real harness bug: `evaluate_lagged_follower`
+  normalized quaternions in place on the caller's array, so a second run
+  on the same array differed in the 10th decimal. It now copies first;
+  determinism is exact (`as_dict()` equality, pinned by test).
+
+The suite is now **62 tests**: 57 pass under the system Python
+(`python3 -m pytest tests/ -q`), with 5 Batch 2 layout tests skipped
+there because the system Python has no h5py; those 5 pass under the
+data-sample venv Python. The 6 new tests cover the sweep: lookahead-0
+stall, lookahead-2 outrun at alpha 1.0, exact reproduction of the M7
+number at lookahead 1, determinism, lookahead tagging in
+`evaluate_all_demos`, and best-lookahead selection.
+
 ## Verification status (2026-11-12, lagged-follower evaluation milestone 7)
 
 New offline evaluation harness (`ecm_policy/evaluate.py`,
