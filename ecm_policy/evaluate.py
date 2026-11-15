@@ -28,6 +28,7 @@ robot's actual pose. All numbers are deterministic to ~1e-9 relative
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -61,6 +62,7 @@ class LaggedFollowerResult:
     final_phase: int
     gripper_agreement: float | None  # None for demos without a gripper channel
     lookahead: int = 1  # demo steps ahead of the tracked phase the policy commands
+    noise_sigma_m: float = 0.0  # std of Gaussian noise added to the observed EE positions
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -98,10 +100,30 @@ def evaluate_lagged_follower(
     alpha: float = 0.3,
     lookahead: int = 1,
     gripper_pos: np.ndarray | None = None,
+    noise_sigma_m: float = 0.0,
+    noise_seed: int = 0,
 ) -> LaggedFollowerResult:
-    """Run one demo end to end against a lagged follower and score it."""
+    """Run one demo end to end against a lagged follower and score it.
+
+    ``noise_sigma_m`` adds zero-mean Gaussian noise (std ``noise_sigma_m``
+    metres, per arm, per step) to the EE positions the policy *observes*.
+    The true robot state and the recorded trajectory stay exact: only the
+    observation is noisy, which is the failure mode a real evaluator's
+    state estimate introduces. The noise stream is seeded per demo
+    (``noise_seed`` plus a CRC of the demo name), so a run is exactly
+    reproducible and different demos do not share one noise sequence.
+    ``noise_sigma_m = 0`` reproduces the noiseless evaluation exactly.
+    """
     if not (0.0 < alpha <= 1.0):
         raise ValueError(f"alpha must be in (0, 1], got {alpha}")
+    if noise_sigma_m < 0.0:
+        raise ValueError(f"noise_sigma_m must be >= 0, got {noise_sigma_m}")
+    # Seeded per demo so the stream is reproducible and demo-specific.
+    rng = (
+        np.random.default_rng(noise_seed + zlib.crc32(demo.encode()))
+        if noise_sigma_m > 0.0
+        else None
+    )
     traj = np.array(ee_poses, dtype=np.float64)  # copy: normalizing below
     # must not mutate the caller's array, or a second run on the same
     # array would see already-normalized quats and differ in the 10th
@@ -128,8 +150,17 @@ def evaluate_lagged_follower(
     gripper_total = 0
 
     for step in range(steps):
+        # The policy sees the robot's EE positions plus observation noise;
+        # scoring below still uses the TRUE robot pose, so noise can only
+        # hurt through the policy's phase re-anchoring, never by moving
+        # the goalposts.
+        obs_pos = robot[:, 0:3]
+        if rng is not None:
+            obs_pos = obs_pos + rng.normal(
+                0.0, noise_sigma_m, size=obs_pos.shape
+            )
         action, info = core.predict_with_info(
-            {"eef_pos": robot[:, 0:3]}
+            {"eef_pos": obs_pos}
         )
         assert action.shape == (MOBILE_ACTION_DIM,), action.shape
         commanded = action[:14].reshape(2, 7)
@@ -176,6 +207,7 @@ def evaluate_lagged_follower(
             (gripper_match / gripper_total) if gripper_total else None
         ),
         lookahead=int(lookahead),
+        noise_sigma_m=float(noise_sigma_m),
     )
 
 
@@ -184,6 +216,8 @@ def evaluate_all_demos(
     *,
     alphas=DEFAULT_ALPHAS,
     lookahead: int = 1,
+    noise_sigma_m: float = 0.0,
+    noise_seed: int = 0,
 ) -> list[LaggedFollowerResult]:
     """Evaluate every bundled demo at every lag fraction, in filename order."""
     from pathlib import Path
@@ -203,6 +237,8 @@ def evaluate_all_demos(
                     alpha=alpha,
                     lookahead=lookahead,
                     gripper_pos=grip,
+                    noise_sigma_m=noise_sigma_m,
+                    noise_seed=noise_seed,
                 )
             )
     return results

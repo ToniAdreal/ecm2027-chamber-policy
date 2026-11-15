@@ -186,6 +186,63 @@ python tools/extract_demo_trajectory.py \
   --output data/demo_7_ee_poses.npz
 ```
 
+## Verification status (2026-11-14, observation-noise sweep milestone 9)
+
+Noise sweep (`ecm_policy/evaluate.py`, `tools/sweep_noise.py`): every
+bundled demo at `alpha` 0.3 / 0.5 with the submission-default lookahead
+2, for Gaussian noise on the EE positions the policy *observes* (sigma
+0 / 1 mm / 5 mm / 1 cm / 2 cm, seed 20261114; 60 full rollouts). Noise
+touches only the observation — the true robot state and the recorded
+trajectory stay exact, and scoring uses the true robot pose, so noise
+can only hurt through the policy's phase re-anchoring. Full table in
+`evaluation/noise_sweep.md` (also `noise_sweep.json`). Demo-averaged
+mean position error:
+
+| alpha | sigma 0 | 1 mm | 5 mm | 1 cm | 2 cm |
+|---|---|---|---|---|---|
+| 0.3 | 0.609 m | 0.615 m | **0.391 m** | 0.585 m | 0.747 m |
+| 0.5 | **0.010 m** | 0.261 m | 0.626 m | 0.718 m | 0.738 m |
+
+* **The phase tracker is noise-fragile.** At alpha 0.5, just 1 mm of
+  observation noise destroys the near-perfect noiseless tracking
+  (0.010 → 0.261 m), and by 5 mm the tracker systematically *outruns*
+  the recording: mean phase lag goes from −2 steps at sigma 0 to
+  −918 at 5 mm and −1,948 at 2 cm, and gripper agreement on the Batch
+  2 demos collapses from 99.8% to 31.9%. Mechanism, verified in
+  `ecm_policy/core.py`: `_track_phase` takes the nearest demo pose
+  inside a 250-step forward window from the current phase, and phase
+  never moves backward — so a noisy observation can make a later pose
+  the nearest one, jumping phase forward by up to 250 steps per policy
+  step, and the jump compounds because the robot then chases poses
+  ahead of the recording.
+* **At alpha 0.3 the same jumps partially compensate lag** — mean phase
+  lag falls from 1,117 steps at sigma 0 to 32 at 5 mm (mean position
+  error 0.609 → 0.391 m) — but the effect overshoots at 2 cm
+  (lag −1,621, error 0.747 m, gripper agreement 39.4%). Noise is not a
+  fix: it helps a lagging follower by accident and hurts a synced one
+  by the same mechanism.
+* **Honest scope:** this is a property of the harness's nearest-point
+  tracker, not a measurement of real Isaac Sim dynamics, and the real
+  evaluator's observation-noise level is unknown — the sweep only
+  bounds the sensitivity. The submission implication is concrete: the
+  phase tracker needs noise robustness (smaller search window,
+  observation smoothing, or a phase-advance cap) before the policy
+  meets a noisy evaluator; that is the next milestone, not a claim
+  made here. **Not verified:** any run inside Isaac Sim (no GPU on
+  the development host), the Docker image build (no Docker on the
+  development host), and the official submission validation (the
+  official Docker service specification and validator had not been
+  released as of 2026-11-14). No competition score is claimed.
+
+The suite is now **69 tests**: 64 pass under the system Python
+(`python3 -m pytest tests/ -q`), with 5 Batch 2 layout tests skipped
+there because the system Python has no h5py; those 5 pass under the
+data-sample venv Python, where the full suite runs 69/69. The 7 new
+tests cover the sweep: sigma-0 exact reproduction of the noiseless
+evaluation and of the M8 lookahead-2 number, determinism per seed,
+different-seed divergence, finite errors at 2 cm, negative-sigma
+rejection, and noise tagging in `evaluate_all_demos`.
+
 ## Verification status (2026-11-13, lookahead-sweep milestone 8)
 
 Lookahead sweep (`ecm_policy/evaluate.py`, `tools/sweep_lookahead.py`):
