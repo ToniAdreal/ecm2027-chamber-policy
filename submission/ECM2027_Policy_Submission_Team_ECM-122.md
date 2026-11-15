@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-13 (Beijing)
-**Policy version:** v3.4 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep; submission default lookahead 2)
+**Submission date:** 2026-11-14 (Beijing)
+**Policy version:** v3.5 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep; submission default lookahead 2)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `1c4deaf2e8c17c54be7838c873b8af303cd33a50`
-("ECM 2027 M8: lookahead sweep (6 demos x alpha 0.3/0.5 x lookahead 0/1/2/4/8, 62 tests green)", 2026-11-13)
+Commit submitted: `b659c5cf9655af64c31c55e3398abb631d95115e`
+("ECM 2027 M9: observation-noise sweep (6 demos x alpha 0.3/0.5 x sigma 0/1mm/5mm/1cm/2cm, 69 tests green)", 2026-11-14)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -81,10 +81,10 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **62 / 62 tests pass** in the repository test suite, measured 2026-11-13
-  in an isolated clone at the submitted commit (57 pass under the system
+* **69 / 69 tests pass** in the repository test suite, measured 2026-11-14
+  in an isolated clone at the submitted commit (64 pass under the system
   Python; the 5 Batch 2 layout tests need h5py and pass under the
-  data-sample venv Python, where the full suite runs 62/62), including:
+  data-sample venv Python, where the full suite runs 69/69), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 demos and fixed gripper
   on Batch 1 demos, zero wheels throughout, monotonic phase
@@ -110,6 +110,24 @@ publishes.
   near-perfect `alpha = 0.5` / lookahead-2 result is a property of the
   harness's first-order lag model, not a measurement of real Isaac Sim
   dynamics, and is reported as such.
+* Observation-noise sweep (`tools/sweep_noise.py`, full table in
+  `evaluation/noise_sweep.md`): every bundled demo at `alpha` 0.3 /
+  0.5 with lookahead 2, for Gaussian noise on the EE positions the
+  policy observes (sigma 0 / 1 mm / 5 mm / 1 cm / 2 cm). The phase
+  tracker is noise-fragile: at `alpha = 0.5`, 1 mm of noise breaks the
+  near-perfect noiseless tracking (mean position error 0.010 -> 0.261
+  m), and at 5 mm and above the tracker systematically outruns the
+  recording (mean phase lag -918 steps at 5 mm, -1,948 at 2 cm) while
+  gripper agreement on Batch 2 falls to 31.9%. The mechanism is the
+  nearest-point phase search inside its 250-step forward window
+  combined with monotonic phase: a noisy observation can make a later
+  demo pose the nearest one, jumping phase forward, and the jump
+  compounds. At `alpha = 0.3` the same jumps partially compensate lag
+  at 5 mm (mean phase lag 1,117 -> 32 steps) but overshoot at 2 cm.
+  Noise was added only to the observation, never to the true robot
+  state or the recorded trajectory. The real evaluator's observation
+  noise is unknown, so this bounds the sensitivity; noise-robust phase
+  tracking is the next step, not a claim made here.
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on
@@ -122,11 +140,11 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 1c4deaf2e8c17c54be7838c873b8af303cd33a50
+git checkout b659c5cf9655af64c31c55e3398abb631d95115e
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 57 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 64 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py;
-                                 # with h5py installed: 62 passed)
+                                 # with h5py installed: 69 passed)
 docker build -t ecm2027-policy . # policy service image
 ```
 

@@ -6,11 +6,11 @@ code { font-size: 9.5pt; background: #f0f0f0; padding: 1px 3px; }
 pre { background: #f0f0f0; padding: 10px; font-size: 9.5pt; white-space: pre-wrap; overflow-wrap: break-word; }
 a { color: #0645ad; }
 </style></head><body><h1>Singapore Embodied AI Challenge for Manufacturing (ECM 2027) — Simulation Track Policy Submission</h1>
-<p><strong>Team:</strong> TwinTeleop — <strong>Team ID: ECM-122</strong> <strong>Team lead:</strong> Toni Adreal — toniadreal11@gmail.com <strong>Submission date:</strong> 2026-11-13 (Beijing) <strong>Policy version:</strong> v3.4 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep; submission default lookahead 2)</p>
+<p><strong>Team:</strong> TwinTeleop — <strong>Team ID: ECM-122</strong> <strong>Team lead:</strong> Toni Adreal — toniadreal11@gmail.com <strong>Submission date:</strong> 2026-11-14 (Beijing) <strong>Policy version:</strong> v3.5 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep; submission default lookahead 2)</p>
 <h2>Where the code lives</h2>
 <p>Full policy code, tests, and this document are public at:</p>
 <p><strong>https://github.com/ToniAdreal/ecm2027-chamber-policy</strong></p>
-<p>Commit submitted: <code>1c4deaf2e8c17c54be7838c873b8af303cd33a50</code> (&quot;ECM 2027 M8: lookahead sweep (6 demos x alpha 0.3/0.5 x lookahead 0/1/2/4/8, 62 tests green)&quot;, 2026-11-13)</p>
+<p>Commit submitted: <code>b659c5cf9655af64c31c55e3398abb631d95115e</code> (&quot;ECM 2027 M9: observation-noise sweep (6 demos x alpha 0.3/0.5 x sigma 0/1mm/5mm/1cm/2cm, 69 tests green)&quot;, 2026-11-14)</p>
 <p>This file is the submission README. The organizers asked for a policy file with a detailed README; because the submission form&#x27;s upload validator rejects archive contents with code, data, and markdown extensions, this single PDF carries the full README and points at the public repository above for the runnable code. No other file is needed to evaluate the policy: clone the repository at the commit above and follow §4.</p>
 <h2>1. What the policy does</h2>
 <p>Multi-demonstration trajectory following for the Galbot-Mobile dual-arm chamber task in the official simulation (<code>scene04_1.usd</code>).</p>
@@ -37,9 +37,9 @@ a { color: #0645ad; }
 <p>A <code>Dockerfile</code> is included in the repository. The starter README still lists the official Docker service transport and message schemas as pending; the service follows the operation names the starter README publishes.</p>
 <h2>3. Verification (all CPU-side; this host has no GPU)</h2>
 <ul>
-<li><strong>62 / 62 tests pass</strong> in the repository test suite, measured 2026-11-13</li>
+<li><strong>69 / 69 tests pass</strong> in the repository test suite, measured 2026-11-14</li>
 </ul>
-<p>in an isolated clone at the submitted commit (57 pass under the system Python; the 5 Batch 2 layout tests need h5py and pass under the data-sample venv Python, where the full suite runs 62/62), including: full-episode rollout integrity (finite 20-dim actions, unit-norm quaternions, replayed gripper state on Batch 2 demos and fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase to trajectory end, no mid-episode demo switch), multi-demo selection, adapter, service, and core tests.</p>
+<p>in an isolated clone at the submitted commit (64 pass under the system Python; the 5 Batch 2 layout tests need h5py and pass under the data-sample venv Python, where the full suite runs 69/69), including: full-episode rollout integrity (finite 20-dim actions, unit-norm quaternions, replayed gripper state on Batch 2 demos and fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase to trajectory end, no mid-episode demo switch), multi-demo selection, adapter, service, and core tests.</p>
 <ul>
 <li>Offline lagged-follower evaluation (<code>ecm_policy/evaluate.py</code>, full</li>
 </ul>
@@ -48,6 +48,10 @@ a { color: #0645ad; }
 <li>Lookahead sweep (<code>tools/sweep_lookahead.py</code>, full table in</li>
 </ul>
 <p><code>evaluation/lookahead_sweep.md</code>): every bundled demo at <code>alpha</code> 0.3 / 0.5 for lookaheads 0 / 1 / 2 / 4 / 8. Lookahead 2 is the submission default: it beats lookahead 1 at both swept alphas on demo-averaged mean position error (0.609 vs 0.618 m at <code>alpha = 0.3</code>; 0.010 vs 0.618 m at <code>alpha = 0.5</code>), while lookahead 4 wins only at 0.3 and lookahead 0 stalls the phase tracker outright (final phase 0). The near-perfect <code>alpha = 0.5</code> / lookahead-2 result is a property of the harness&#x27;s first-order lag model, not a measurement of real Isaac Sim dynamics, and is reported as such.</p>
+<ul>
+<li>Observation-noise sweep (<code>tools/sweep_noise.py</code>, full table in</li>
+</ul>
+<p><code>evaluation/noise_sweep.md</code>): every bundled demo at <code>alpha</code> 0.3 / 0.5 with lookahead 2, for Gaussian noise on the EE positions the policy observes (sigma 0 / 1 mm / 5 mm / 1 cm / 2 cm). The phase tracker is noise-fragile: at <code>alpha = 0.5</code>, 1 mm of noise breaks the near-perfect noiseless tracking (mean position error 0.010 -&gt; 0.261 m), and at 5 mm and above the tracker systematically outruns the recording (mean phase lag -918 steps at 5 mm, -1,948 at 2 cm) while gripper agreement on Batch 2 falls to 31.9%. The mechanism is the nearest-point phase search inside its 250-step forward window combined with monotonic phase: a noisy observation can make a later demo pose the nearest one, jumping phase forward, and the jump compounds. At <code>alpha = 0.3</code> the same jumps partially compensate lag at 5 mm (mean phase lag 1,117 -&gt; 32 steps) but overshoot at 2 cm. Noise was added only to the observation, never to the true robot state or the recorded trajectory. The real evaluator&#x27;s observation noise is unknown, so this bounds the sensitivity; noise-robust phase tracking is the next step, not a claim made here.</p>
 <ul>
 <li>The starter repository&#x27;s 7 supplied lightweight regression tests also</li>
 </ul>
@@ -59,11 +63,11 @@ a { color: #0645ad; }
 <h2>4. How the organizers run it</h2>
 <pre><code>git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 1c4deaf2e8c17c54be7838c873b8af303cd33a50
+git checkout b659c5cf9655af64c31c55e3398abb631d95115e
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 57 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 64 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py;
-                                 # with h5py installed: 62 passed)
+                                 # with h5py installed: 69 passed)
 docker build -t ecm2027-policy . # policy service image</code></pre>
 <p>Demonstration data is bundled under <code>data/</code> (<code>demo_*_ee_poses.npz</code>, end-effector poses, shape <code>(T, 2, 7)</code> = <code>[x, y, z, qw, qx, qy, qz]</code> per arm; the <code>demo_b2_*</code> bundles also carry the recorded <code>gripper_pos</code> <code>(T, 2)</code>). The extraction tool is under <code>tools/</code>; Batch 2 data was released 2026-11-10 and is integrated in this package (two episodes); Batch 3 data (due 2026-11-28) can extend the set with the same tool.</p>
 <h2>5. Honest limitations</h2>
