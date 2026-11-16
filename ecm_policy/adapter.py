@@ -93,6 +93,18 @@ class ChamberReplayPolicy(BasePolicy):
             # The evaluator can still override via policy_lookahead.
             lookahead=int(usr_args.get("policy_lookahead", 2)),
             phase_window=int(usr_args.get("policy_phase_window", 250)),
+            # Default advance cap 4 (was uncapped): the M10 robust sweep
+            # (2026-11-16, tools/sweep_robust.py, 6 demos x alpha 0.3/0.5
+            # x sigma 0/1mm/5mm/1cm) found cap 4 wins 6 of 8 (alpha, sigma)
+            # cells on demo-averaged mean position error, costs nothing
+            # noiseless (identical numbers at sigma 0), and lifts gripper
+            # agreement at alpha 0.5 at every noise level (e.g. sigma 5 mm:
+            # 55.2% -> 76.0%). The one exception is alpha 0.3 / sigma 5 mm,
+            # where uncapped noisy jumps partly compensate the lag (0.391 vs
+            # 0.593 m) — a property of the first-order lag model, not a
+            # real-evaluator result. The evaluator can still override via
+            # policy_phase_advance_cap.
+            phase_advance_cap=int(usr_args.get("policy_phase_advance_cap", 4)),
             gripper_left=float(usr_args.get("policy_gripper_left", 1.0)),
             gripper_right=float(usr_args.get("policy_gripper_right", 1.0)),
             action_quat_order=str(usr_args.get("policy_action_quat_order", "wxyz")),

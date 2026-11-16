@@ -119,6 +119,16 @@ def make_policy(**overrides):
 
 @unittest.skipUnless((STARTER_ROOT / "policy" / "base.py").exists(), "starter repo missing")
 class AdapterRolloutTests(unittest.TestCase):
+    def test_submission_defaults_lookahead_2_and_advance_cap_4(self):
+        # M8 chose lookahead 2; M10 chose phase_advance_cap 4 (robust
+        # sweep 2026-11-16: cap 4 wins 6 of 8 cells, costs nothing
+        # noiseless). The core default stays uncapped; the submission
+        # default lives here and in the service CLI.
+        policy, _usr_args = make_policy()
+        assert policy.model.lookahead == 2
+        assert policy.model.phase_advance_cap == 4
+        assert policy.model.phase_window == 250
+
     def test_success_from_extras(self):
         policy, usr_args = make_policy()
         env = MockEnv(terminate_at=30, with_success_extras=True)

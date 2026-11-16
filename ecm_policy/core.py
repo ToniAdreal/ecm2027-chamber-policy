@@ -14,6 +14,12 @@ core therefore:
 * when the caller supplies the robot's current EE positions, re-anchors the
   phase to the demo point nearest to the current pose inside a forward
   search window (closed-loop phase tracking, tolerant to timing drift);
+* caps how far the phase may jump in one step (``phase_advance_cap``):
+  the M9 noise sweep (2026-11-14) showed a noisy observation can jump
+  the phase up to the full 250-step window in a single step, because the
+  tracker takes the nearest point in the window and never moves backward;
+  a small cap keeps re-anchoring local while the robot can only advance
+  a few demo steps per policy step anyway;
 * otherwise advances the phase one demo step per policy step (open loop);
 * commands the demo pose at ``phase + lookahead`` for both arms;
 * replays the recorded gripper state when the demo carries one: Batch 2
@@ -117,6 +123,7 @@ class ReplayFollowCore:
         actions_dim: int = MOBILE_ACTION_DIM,
         lookahead: int = 1,
         phase_window: int = 250,
+        phase_advance_cap: int | None = None,
         gripper_left: float = 1.0,
         gripper_right: float = 1.0,
         gripper_pos: np.ndarray | None = None,
@@ -145,11 +152,18 @@ class ReplayFollowCore:
             )
         if action_quat_order not in ("wxyz", "xyzw"):
             raise ValueError(f"unknown action_quat_order: {action_quat_order!r}")
+        if phase_advance_cap is not None and int(phase_advance_cap) < 0:
+            raise ValueError(
+                f"phase_advance_cap must be >= 0, got {phase_advance_cap}"
+            )
         self._traj = traj.copy()
         self._traj[:, :, 3:7] = _normalize_quats(self._traj[:, :, 3:7])
         self.actions_dim = int(actions_dim)
         self.lookahead = max(0, int(lookahead))
         self.phase_window = max(1, int(phase_window))
+        self.phase_advance_cap = (
+            None if phase_advance_cap is None else int(phase_advance_cap)
+        )
         self.gripper_left = float(gripper_left)
         self.gripper_right = float(gripper_right)
         self.action_quat_order = action_quat_order
@@ -290,12 +304,24 @@ class ReplayFollowCore:
         return None
 
     def _track_phase(self, ee_pos: np.ndarray) -> int:
-        """Nearest demo index to the current EE positions, searched forward."""
+        """Nearest demo index to the current EE positions, searched forward.
+
+        With ``phase_advance_cap`` set, the phase may move at most that
+        many demo steps per call: a noisy observation can otherwise land
+        closer to a demo pose hundreds of steps ahead and yank the phase
+        forward in one step (the M9 failure mode). The cap keeps
+        re-anchoring local; the robot itself can only advance a few demo
+        steps per policy step, so a small cap costs nothing in the
+        noiseless case.
+        """
         start = self._phase
         stop = min(self.num_steps, start + self.phase_window)
         window = self._traj[start:stop, :, 0:3]
         dist = np.linalg.norm(window - ee_pos[None, :, :], axis=-1).mean(axis=-1)
-        return start + int(np.argmin(dist))
+        tracked = start + int(np.argmin(dist))
+        if self.phase_advance_cap is not None:
+            tracked = min(tracked, start + self.phase_advance_cap)
+        return tracked
 
     def _assemble(self, pose_pair: np.ndarray, target_index: int) -> np.ndarray:
         parts = []

@@ -63,6 +63,8 @@ class LaggedFollowerResult:
     gripper_agreement: float | None  # None for demos without a gripper channel
     lookahead: int = 1  # demo steps ahead of the tracked phase the policy commands
     noise_sigma_m: float = 0.0  # std of Gaussian noise added to the observed EE positions
+    phase_window: int = 250  # forward search window of the phase tracker
+    phase_advance_cap: int | None = None  # max phase jump per step (None = uncapped)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -102,6 +104,8 @@ def evaluate_lagged_follower(
     gripper_pos: np.ndarray | None = None,
     noise_sigma_m: float = 0.0,
     noise_seed: int = 0,
+    phase_window: int = 250,
+    phase_advance_cap: int | None = None,
 ) -> LaggedFollowerResult:
     """Run one demo end to end against a lagged follower and score it.
 
@@ -134,7 +138,11 @@ def evaluate_lagged_follower(
     # against raw quats would report a ~0.001 deg artifact as error.
     traj[:, :, 3:7] = _normalize_quats(traj[:, :, 3:7])
     core = ReplayFollowCore(
-        traj, lookahead=lookahead, gripper_pos=gripper_pos
+        traj,
+        lookahead=lookahead,
+        gripper_pos=gripper_pos,
+        phase_window=phase_window,
+        phase_advance_cap=phase_advance_cap,
     )
     core.reset()
 
@@ -208,6 +216,8 @@ def evaluate_lagged_follower(
         ),
         lookahead=int(lookahead),
         noise_sigma_m=float(noise_sigma_m),
+        phase_window=int(phase_window),
+        phase_advance_cap=phase_advance_cap,
     )
 
 
@@ -218,6 +228,8 @@ def evaluate_all_demos(
     lookahead: int = 1,
     noise_sigma_m: float = 0.0,
     noise_seed: int = 0,
+    phase_window: int = 250,
+    phase_advance_cap: int | None = None,
 ) -> list[LaggedFollowerResult]:
     """Evaluate every bundled demo at every lag fraction, in filename order."""
     from pathlib import Path
@@ -239,6 +251,8 @@ def evaluate_all_demos(
                     gripper_pos=grip,
                     noise_sigma_m=noise_sigma_m,
                     noise_seed=noise_seed,
+                    phase_window=phase_window,
+                    phase_advance_cap=phase_advance_cap,
                 )
             )
     return results

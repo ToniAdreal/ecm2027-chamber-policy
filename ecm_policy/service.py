@@ -191,19 +191,27 @@ def main(argv: list[str] | None = None) -> int:
     # beats 1 at both swept alphas (alpha 0.3 / 0.5) on demo-averaged
     # mean position error; see tools/sweep_lookahead.py.
     parser.add_argument("--lookahead", type=int, default=2)
+    # Default advance cap 4 (was uncapped): M10 robust sweep, 2026-11-16
+    # — cap 4 wins 6 of 8 (alpha, sigma) cells on demo-averaged mean
+    # position error and costs nothing noiseless; see tools/sweep_robust.py
+    # and ecm_policy/adapter.py for the full reasoning.
+    parser.add_argument("--phase-advance-cap", type=int, default=4)
+    parser.add_argument("--phase-window", type=int, default=250)
     parser.add_argument("--no-shutdown-on-close", action="store_true",
                         help="keep serving after /close (useful for local tests)")
     args = parser.parse_args(argv)
 
     if args.trajectory:
         core = ReplayFollowCore.from_npz(
-            args.trajectory, actions_dim=args.actions_dim, lookahead=args.lookahead
+            args.trajectory, actions_dim=args.actions_dim, lookahead=args.lookahead,
+            phase_window=args.phase_window, phase_advance_cap=args.phase_advance_cap,
         )
         core_desc = f"trajectory steps={core.num_steps} gripper={core.gripper_mode}"
     else:
         demo_dir = args.trajectory_dir or str(DEFAULT_TRAJECTORY_DIR)
         core = MultiDemoCore.from_npz_dir(
-            demo_dir, actions_dim=args.actions_dim, lookahead=args.lookahead
+            demo_dir, actions_dim=args.actions_dim, lookahead=args.lookahead,
+            phase_window=args.phase_window, phase_advance_cap=args.phase_advance_cap,
         )
         core_desc = f"demos={core.demo_names}"
     server = build_server(
