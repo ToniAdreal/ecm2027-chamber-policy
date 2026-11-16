@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-14 (Beijing)
-**Policy version:** v3.5 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep; submission default lookahead 2)
+**Submission date:** 2026-11-16 (Beijing)
+**Policy version:** v3.6 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking; submission defaults lookahead 2, phase advance cap 4)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `b659c5cf9655af64c31c55e3398abb631d95115e`
-("ECM 2027 M9: observation-noise sweep (6 demos x alpha 0.3/0.5 x sigma 0/1mm/5mm/1cm/2cm, 69 tests green)", 2026-11-14)
+Commit submitted: `14a65782d805a77559c39e54c46bfebcd54d6ae6`
+("ECM 2027 M10: noise-robust phase tracking (advance cap 4; 6 configs x alpha 0.3/0.5 x sigma 0/1mm/5mm/1cm, 78 tests green)", 2026-11-16)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -36,7 +36,9 @@ chamber task in the official simulation (`scene04_1.usd`).
   current end-effector positions it re-anchors the phase to the
   demonstration point nearest the current pose within a forward window
   (closed-loop phase tracking); otherwise it advances one demonstration
-  step per policy step.
+  step per policy step. The re-anchoring may move the phase at most 4
+  demo steps per policy step (advance cap, §3): a noisy observation can
+  otherwise yank the phase hundreds of steps forward in one step.
 * It commands the demonstration pose at `phase + lookahead` for both
   arms, as absolute differential-IK pose commands
   (`use_relative_mode=False`, the starter repository's own convention).
@@ -81,10 +83,10 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **69 / 69 tests pass** in the repository test suite, measured 2026-11-14
-  in an isolated clone at the submitted commit (64 pass under the system
+* **78 / 78 tests pass** in the repository test suite, measured 2026-11-16
+  in an isolated clone at the submitted commit (73 pass under the system
   Python; the 5 Batch 2 layout tests need h5py and pass under the
-  data-sample venv Python, where the full suite runs 69/69), including:
+  data-sample venv Python, where the full suite runs 78/78), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 demos and fixed gripper
   on Batch 1 demos, zero wheels throughout, monotonic phase
@@ -128,6 +130,22 @@ publishes.
   state or the recorded trajectory. The real evaluator's observation
   noise is unknown, so this bounds the sensitivity; noise-robust phase
   tracking is the next step, not a claim made here.
+* Noise-robust phase-tracking sweep (`tools/sweep_robust.py`, full table
+  in `evaluation/robust_sweep.md`): six tracker configs (uncapped
+  baseline, advance caps 4 / 8 / 16, window 32, window 64 + cap 8) at
+  `alpha` 0.3 / 0.5 with lookahead 2, for Gaussian observation noise
+  (sigma 0 / 1 mm / 5 mm / 1 cm). The baseline column reproduces the M9
+  numbers exactly. Advance cap 4 is the new submission default: it wins
+  6 of 8 (alpha, sigma) cells on demo-averaged mean position error, it
+  costs nothing with no noise (identical numbers at sigma 0), and it
+  lifts Batch 2 gripper agreement at `alpha = 0.5` at every noise level
+  (sigma 1 mm: 84.3% -> 93.4%; 5 mm: 55.2% -> 76.0%; 1 cm: 43.6% ->
+  60.0%). The one exception is `alpha = 0.3` / sigma 5 mm, where the
+  uncapped tracker wins (0.391 vs 0.593 m) because noisy forward jumps
+  partly compensate the lag — a property of the harness's first-order
+  lag model, not a real-evaluator result, and reported as such.
+  Smaller windows alone help less than the cap, and cap 8 / cap 16 sit
+  between cap 4 and the baseline at most noise levels.
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on

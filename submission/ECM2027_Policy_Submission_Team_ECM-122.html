@@ -6,11 +6,11 @@ code { font-size: 9.5pt; background: #f0f0f0; padding: 1px 3px; }
 pre { background: #f0f0f0; padding: 10px; font-size: 9.5pt; white-space: pre-wrap; overflow-wrap: break-word; }
 a { color: #0645ad; }
 </style></head><body><h1>Singapore Embodied AI Challenge for Manufacturing (ECM 2027) — Simulation Track Policy Submission</h1>
-<p><strong>Team:</strong> TwinTeleop — <strong>Team ID: ECM-122</strong> <strong>Team lead:</strong> Toni Adreal — toniadreal11@gmail.com <strong>Submission date:</strong> 2026-11-14 (Beijing) <strong>Policy version:</strong> v3.5 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep; submission default lookahead 2)</p>
+<p><strong>Team:</strong> TwinTeleop — <strong>Team ID: ECM-122</strong> <strong>Team lead:</strong> Toni Adreal — toniadreal11@gmail.com <strong>Submission date:</strong> 2026-11-16 (Beijing) <strong>Policy version:</strong> v3.6 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking; submission defaults lookahead 2, phase advance cap 4)</p>
 <h2>Where the code lives</h2>
 <p>Full policy code, tests, and this document are public at:</p>
 <p><strong>https://github.com/ToniAdreal/ecm2027-chamber-policy</strong></p>
-<p>Commit submitted: <code>b659c5cf9655af64c31c55e3398abb631d95115e</code> (&quot;ECM 2027 M9: observation-noise sweep (6 demos x alpha 0.3/0.5 x sigma 0/1mm/5mm/1cm/2cm, 69 tests green)&quot;, 2026-11-14)</p>
+<p>Commit submitted: <code>14a65782d805a77559c39e54c46bfebcd54d6ae6</code> (&quot;ECM 2027 M10: noise-robust phase tracking (advance cap 4; 6 configs x alpha 0.3/0.5 x sigma 0/1mm/5mm/1cm, 78 tests green)&quot;, 2026-11-16)</p>
 <p>This file is the submission README. The organizers asked for a policy file with a detailed README; because the submission form&#x27;s upload validator rejects archive contents with code, data, and markdown extensions, this single PDF carries the full README and points at the public repository above for the runnable code. No other file is needed to evaluate the policy: clone the repository at the commit above and follow §4.</p>
 <h2>1. What the policy does</h2>
 <p>Multi-demonstration trajectory following for the Galbot-Mobile dual-arm chamber task in the official simulation (<code>scene04_1.usd</code>).</p>
@@ -21,7 +21,7 @@ a { color: #0645ad; }
 <ul>
 <li>During the episode it tracks a phase index into the chosen demonstration</li>
 </ul>
-<p>and advances it monotonically. When the caller supplies the robot&#x27;s current end-effector positions it re-anchors the phase to the demonstration point nearest the current pose within a forward window (closed-loop phase tracking); otherwise it advances one demonstration step per policy step.</p>
+<p>and advances it monotonically. When the caller supplies the robot&#x27;s current end-effector positions it re-anchors the phase to the demonstration point nearest the current pose within a forward window (closed-loop phase tracking); otherwise it advances one demonstration step per policy step. The re-anchoring may move the phase at most 4 demo steps per policy step (advance cap, §3): a noisy observation can otherwise yank the phase hundreds of steps forward in one step.</p>
 <ul>
 <li>It commands the demonstration pose at <code>phase + lookahead</code> for both</li>
 </ul>
@@ -37,9 +37,9 @@ a { color: #0645ad; }
 <p>A <code>Dockerfile</code> is included in the repository. The starter README still lists the official Docker service transport and message schemas as pending; the service follows the operation names the starter README publishes.</p>
 <h2>3. Verification (all CPU-side; this host has no GPU)</h2>
 <ul>
-<li><strong>69 / 69 tests pass</strong> in the repository test suite, measured 2026-11-14</li>
+<li><strong>78 / 78 tests pass</strong> in the repository test suite, measured 2026-11-16</li>
 </ul>
-<p>in an isolated clone at the submitted commit (64 pass under the system Python; the 5 Batch 2 layout tests need h5py and pass under the data-sample venv Python, where the full suite runs 69/69), including: full-episode rollout integrity (finite 20-dim actions, unit-norm quaternions, replayed gripper state on Batch 2 demos and fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase to trajectory end, no mid-episode demo switch), multi-demo selection, adapter, service, and core tests.</p>
+<p>in an isolated clone at the submitted commit (73 pass under the system Python; the 5 Batch 2 layout tests need h5py and pass under the data-sample venv Python, where the full suite runs 78/78), including: full-episode rollout integrity (finite 20-dim actions, unit-norm quaternions, replayed gripper state on Batch 2 demos and fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase to trajectory end, no mid-episode demo switch), multi-demo selection, adapter, service, and core tests.</p>
 <ul>
 <li>Offline lagged-follower evaluation (<code>ecm_policy/evaluate.py</code>, full</li>
 </ul>
@@ -52,6 +52,10 @@ a { color: #0645ad; }
 <li>Observation-noise sweep (<code>tools/sweep_noise.py</code>, full table in</li>
 </ul>
 <p><code>evaluation/noise_sweep.md</code>): every bundled demo at <code>alpha</code> 0.3 / 0.5 with lookahead 2, for Gaussian noise on the EE positions the policy observes (sigma 0 / 1 mm / 5 mm / 1 cm / 2 cm). The phase tracker is noise-fragile: at <code>alpha = 0.5</code>, 1 mm of noise breaks the near-perfect noiseless tracking (mean position error 0.010 -&gt; 0.261 m), and at 5 mm and above the tracker systematically outruns the recording (mean phase lag -918 steps at 5 mm, -1,948 at 2 cm) while gripper agreement on Batch 2 falls to 31.9%. The mechanism is the nearest-point phase search inside its 250-step forward window combined with monotonic phase: a noisy observation can make a later demo pose the nearest one, jumping phase forward, and the jump compounds. At <code>alpha = 0.3</code> the same jumps partially compensate lag at 5 mm (mean phase lag 1,117 -&gt; 32 steps) but overshoot at 2 cm. Noise was added only to the observation, never to the true robot state or the recorded trajectory. The real evaluator&#x27;s observation noise is unknown, so this bounds the sensitivity; noise-robust phase tracking is the next step, not a claim made here.</p>
+<ul>
+<li>Noise-robust phase-tracking sweep (<code>tools/sweep_robust.py</code>, full table</li>
+</ul>
+<p>in <code>evaluation/robust_sweep.md</code>): six tracker configs (uncapped baseline, advance caps 4 / 8 / 16, window 32, window 64 + cap 8) at <code>alpha</code> 0.3 / 0.5 with lookahead 2, for Gaussian observation noise (sigma 0 / 1 mm / 5 mm / 1 cm). The baseline column reproduces the M9 numbers exactly. Advance cap 4 is the new submission default: it wins 6 of 8 (alpha, sigma) cells on demo-averaged mean position error, it costs nothing with no noise (identical numbers at sigma 0), and it lifts Batch 2 gripper agreement at <code>alpha = 0.5</code> at every noise level (sigma 1 mm: 84.3% -&gt; 93.4%; 5 mm: 55.2% -&gt; 76.0%; 1 cm: 43.6% -&gt; 60.0%). The one exception is <code>alpha = 0.3</code> / sigma 5 mm, where the uncapped tracker wins (0.391 vs 0.593 m) because noisy forward jumps partly compensate the lag — a property of the harness&#x27;s first-order lag model, not a real-evaluator result, and reported as such. Smaller windows alone help less than the cap, and cap 8 / cap 16 sit between cap 4 and the baseline at most noise levels.</p>
 <ul>
 <li>The starter repository&#x27;s 7 supplied lightweight regression tests also</li>
 </ul>
