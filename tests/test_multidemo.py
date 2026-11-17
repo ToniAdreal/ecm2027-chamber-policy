@@ -9,7 +9,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ecm_policy.multidemo import MultiDemoCore  # noqa: E402
-from ecm_policy.trajectory import load_ee_poses_npz  # noqa: E402
+from ecm_policy.trajectory import load_ee_poses_npz, load_gripper_pos_npz  # noqa: E402
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PACKAGE_ROOT / "data"
@@ -90,19 +90,50 @@ class MultiDemoSelectionTests(unittest.TestCase):
 
 
 class MultiDemoRealDataTests(unittest.TestCase):
-    def test_from_npz_dir_loads_six_real_demos(self):
+    def test_from_npz_dir_loads_seven_real_demos(self):
         core = MultiDemoCore.from_npz_dir(DATA_DIR)
         self.assertEqual(
             core.demo_names,
-            ["demo_0", "demo_2", "demo_7", "demo_9", "demo_b2_0", "demo_b2_3"],
+            ["demo_0", "demo_2", "demo_7", "demo_9", "demo_b2_0", "demo_b2_3",
+             "demo_b3_0"],
         )
-        self.assertEqual(core.health()["num_demos"], 6)
+        self.assertEqual(core.health()["num_demos"], 7)
 
     def test_real_demo_selection_picks_exact_source_demo(self):
         core = MultiDemoCore.from_npz_dir(DATA_DIR)
         demo_9 = load_ee_poses_npz(DATA_DIR / "demo_9_ee_poses.npz")
         core.reset(observation={"eef_pos": demo_9[0, :, 0:3]})
         self.assertEqual(core.selected, "demo_9")
+
+    def test_batch3_demo_selection_picks_exact_source_demo(self):
+        # Batch 3 bundle (demo_b3_0, 4503 steps, split eef_pos/eef_quat
+        # layout + real gripper channel, released 2026-11-17) must behave
+        # like the Batch 2 bundles: it loads, carries a gripper channel,
+        # and its core replays the gripper.
+        # NOTE: Batch 3 shares Batch 2's exact rest-pose first frame
+        # (first-frame L2 diff 0.0 vs demo_b2_0 and demo_b2_3, verified
+        # 2026-11-17), so nearest-start selection TIES across the three
+        # and resolves to the earliest demo per the documented tie rule —
+        # it does NOT pick demo_b3_0 from its own first frame. The
+        # assertions below pin that real behaviour instead of the naive
+        # expectation.
+        core = MultiDemoCore.from_npz_dir(DATA_DIR)
+        demo_b3 = load_ee_poses_npz(DATA_DIR / "demo_b3_0_ee_poses.npz")
+        grip_b3 = load_gripper_pos_npz(DATA_DIR / "demo_b3_0_ee_poses.npz")
+        self.assertEqual(demo_b3.shape, (4503, 2, 7))
+        self.assertIsNotNone(grip_b3)
+        self.assertEqual(grip_b3.shape, (4503, 2))
+        b2_0 = load_ee_poses_npz(DATA_DIR / "demo_b2_0_ee_poses.npz")
+        b2_3 = load_ee_poses_npz(DATA_DIR / "demo_b2_3_ee_poses.npz")
+        self.assertEqual(
+            float(np.linalg.norm(b2_0[0, :, 0:3] - demo_b3[0, :, 0:3])), 0.0
+        )
+        self.assertEqual(
+            float(np.linalg.norm(b2_3[0, :, 0:3] - demo_b3[0, :, 0:3])), 0.0
+        )
+        core.reset(observation={"eef_pos": demo_b3[0, :, 0:3]})
+        self.assertEqual(core.selected, "demo_b2_0")
+        self.assertEqual(core._cores["demo_b3_0"].gripper_mode, "replay")
 
     def test_empty_dir_raises(self):
         import tempfile

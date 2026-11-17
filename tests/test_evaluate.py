@@ -112,7 +112,7 @@ def test_evaluation_is_deterministic() -> None:
 
 def test_all_demos_evaluate_cleanly_at_perfect_follow() -> None:
     results = evaluate_all_demos(DATA_DIR, alphas=(1.0,))
-    assert len(results) == 6
+    assert len(results) == 7
     names = {r.demo for r in results}
     assert names == {
         "demo_0",
@@ -121,6 +121,7 @@ def test_all_demos_evaluate_cleanly_at_perfect_follow() -> None:
         "demo_9",
         "demo_b2_0",
         "demo_b2_3",
+        "demo_b3_0",
     }
     for r in results:
         assert np.isfinite(r.mean_position_error_m)
@@ -128,7 +129,7 @@ def test_all_demos_evaluate_cleanly_at_perfect_follow() -> None:
         assert r.mean_position_error_m == pytest.approx(0.0, abs=1e-9)
         assert r.max_phase_lag == 0
         assert r.final_phase == r.steps - 1
-        if r.demo.startswith("demo_b2"):
+        if r.demo.startswith(("demo_b2", "demo_b3")):
             assert r.gripper_agreement is not None
             assert r.gripper_agreement > 0.99
         else:

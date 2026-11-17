@@ -168,6 +168,8 @@ def main() -> int:
     table = sweep_table(results)
     print(table)
 
+    num_demos = len({r.demo for r in results})
+
     verdict_lines = [
         "",
         "Best config by (alpha, noise sigma), lowest demo-averaged mean position error:",
@@ -197,11 +199,12 @@ def main() -> int:
         "phase_advance_cap) pair; the baseline column reproduces the M9 "
         "noise sweep numbers. Errors are scored against the recorded "
         "demonstration at the same step index using the TRUE robot pose; "
-        "the table below averages each metric over the 6 demos. "
+        f"the table below averages each metric over the {num_demos} demos. "
         "Deterministic, no GPU, no simulator.\n\n" + table + "\n" + verdict + "\n"
     )
-    (out_dir / "robust_sweep.md").write_text(summary, encoding="utf-8")
-    print(f"\nwrote {args.json} and {out_dir / 'robust_sweep.md'}", file=sys.stderr)
+    md_path = args.json.with_suffix(".md")
+    md_path.write_text(summary, encoding="utf-8")
+    print(f"\nwrote {args.json} and {md_path}", file=sys.stderr)
     return 0
 
 
