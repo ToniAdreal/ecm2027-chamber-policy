@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-17 (Beijing)
-**Policy version:** v3.7 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking; submission defaults lookahead 2, phase advance cap 4; Batch 3 demo integrated)
+**Submission date:** 2026-11-18 (Beijing)
+**Policy version:** v3.8 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking; submission defaults lookahead 2, phase advance cap 4; Batch 3 second demo integrated)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `0227b2e1a6373d82f40e259ee2f856dd6bedd46e`
-("ECM 2027 M11: Batch 3 demo integrated (demo_b3_0, 4503 steps, split layout + gripper); robust sweep re-run on 7 demos, 336 rollouts, cap4 default holds; 79 tests green", 2026-11-17)
+Commit submitted: `b796d013a6342d9cd56272da107d24c2d4d014eb`
+("ECM 2027 M12: Batch 3 second demo integrated (demo_b3_1, 5823 steps, split layout + gripper); robust sweep re-run on 8 demos, 384 rollouts, cap4 default holds; 80 tests green", 2026-11-18)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -42,7 +42,7 @@ chamber task in the official simulation (`scene04_1.usd`).
 * It commands the demonstration pose at `phase + lookahead` for both
   arms, as absolute differential-IK pose commands
   (`use_relative_mode=False`, the starter repository's own convention).
-* On Batch 2 demonstrations it replays the recorded gripper state:
+* On Batch 2 and Batch 3 demonstrations it replays the recorded gripper state:
   `gripper_pos` is the Galbot gripper joint position (0.0 fully open,
   1.703 fully closed), thresholded at the range midpoint 0.8515 into
   the binary gripper action (`< 0` close, `>= 0` open), the starter
@@ -51,23 +51,24 @@ chamber task in the official simulation (`scene04_1.usd`).
   are held at a fixed configurable command. Wheel velocity is
   commanded zero — see the honest limitation in §5.
 
-The bundled set holds seven real episodes: four Batch 1 (`demo_0`, `demo_2`,
-`demo_7`, `demo_9`), two Batch 2 (`demo_b2_0`, `demo_b2_3`), and one Batch 3
-(`demo_b3_0`), extracted from seven independent recordings of the official
+The bundled set holds eight real episodes: four Batch 1 (`demo_0`, `demo_2`,
+`demo_7`, `demo_9`), two Batch 2 (`demo_b2_0`, `demo_b2_3`), and two Batch 3
+(`demo_b3_0`, `demo_b3_1`), extracted from eight independent recordings of the official
 dataset `rocochallenge2025/ecm2027_sim_data`. Episode lengths: 7,471 / 5,632 /
-7,566 / 5,122 / 4,106 / 4,022 / 4,503 steps. Batch 2 files carry the split
+7,566 / 5,122 / 4,106 / 4,022 / 4,503 / 5,823 steps. Batch 2 files carry the split
 observation terms `obs/eef_pos` + `obs/eef_quat` (composed into the same
 `(T, 2, 7)` shape by the loader) plus a real gripper observation
 `obs/gripper_pos` `(T, 2)`, stored in the `demo_b2_*` bundles. Batch 3
 ships as one `.tar.gz` per recording (each holding a single
 `galbot_success.hdf5`); it uses the same split layout plus a real gripper
-observation, stored in the `demo_b3_0` bundle. Batch 3 was released
-2026-11-17, eleven days before the announced 2026-11-28 date; a second
-Batch 3 tarball is already downloaded and staged for the next update.
+observation, stored in the `demo_b3_0` and `demo_b3_1` bundles. Batch 3 was released
+2026-11-17, eleven days before the announced 2026-11-28 date; both Batch 3
+tarballs are now downloaded, extracted, and integrated.
 One honest caveat: Batch 3's first frame is bit-identical to Batch 2's
-rest pose (first-frame L2 difference 0.0 against both `demo_b2_0` and
-`demo_b2_3`), so nearest-start selection ties across the three and
-resolves to the earliest demo per the documented tie rule — `demo_b3_0`
+rest pose (first-frame L2 difference 0.0 against `demo_b2_0`, `demo_b2_3`,
+and `demo_b3_0`), so nearest-start selection ties across the four and
+resolves to the earliest demo per the documented tie rule — neither
+`demo_b3_0` nor `demo_b3_1`
 is selected only when the evaluation scene's start pose is nearer to it
 than to the Batch 2 rest pose.
 
@@ -94,10 +95,10 @@ publishes.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **79 / 79 tests pass** in the repository test suite, measured 2026-11-17
-  in an isolated clone at the submitted commit (74 pass under the system
+* **80 / 80 tests pass** in the repository test suite, measured 2026-11-18
+  in an isolated clone at the submitted commit (75 pass under the system
   Python; the 5 Batch 2 layout tests need h5py and pass under the
-  data-sample venv Python, where the full suite runs 79/79), including:
+  data-sample venv Python, where the full suite runs 80/80), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 and Batch 3 demos and
   fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase
@@ -108,7 +109,7 @@ publishes.
   fraction `alpha` of the way toward each commanded pose per step.
   At `alpha = 1.0` the policy reproduces every bundled recording
   exactly (zero position error, zero phase lag); max phase lag strictly
-  decreases as the follower gets faster on all 7 demos; gripper
+  decreases as the follower gets faster on all 8 demos; gripper
   agreement on Batch 2 and Batch 3 rises with `alpha` (32–42% at
   `alpha = 0.1` to 99.8–99.9% at `alpha = 1.0`). At `alpha` 0.1–0.5 the
   lagging follower cannot keep wall-clock pace (mean position error
@@ -175,6 +176,24 @@ publishes.
   like the other demos: noiseless `alpha = 0.5` mean position error
   0.0108 m with 99.9% gripper agreement; at `alpha = 0.3` it lags like
   the rest (mean position error 0.666 m, mean phase lag 888 steps).
+* Batch 3 second-demo re-run of the same sweep (`tools/sweep_robust.py`, full table
+  in `evaluation/robust_sweep_b3_1.md`, 2026-11-18): the six configs above
+  re-swept over all 8 bundled demos (384 rollouts). Every one of the
+  336 per-demo rows for the original seven demos reproduces the M11
+  numbers exactly (max difference 0.0); only the 8-demo averages move,
+  because `demo_b3_1` joins them. Advance cap 4 still holds as the
+  submission default: it wins 5 of 8 cells on 8-demo-averaged mean
+  position error, costs nothing with no noise, and lifts gripper
+  agreement at `alpha = 0.5` at every noise level (1 mm: 85.8% ->
+  91.1%; 5 mm: 56.3% -> 69.4%; 1 cm: 48.6% -> 58.7%). The three cells
+  it does not win: `alpha = 0.3` / sigma 5 mm, where the uncapped
+  baseline wins (0.4155 vs 0.5666 m, the same lag-compensation mechanism
+  as above); `alpha = 0.3` / sigma 1 mm, where cap 16 wins by 0.0014 m
+  (a tie in practice); and `alpha = 0.5` / sigma 0, where baseline and
+  cap 4 are numerically identical (0.0097 m). `demo_b3_1` alone behaves
+  like the other demos: noiseless `alpha = 0.5` mean position error
+  0.0065 m with 99.0% gripper agreement; at `alpha = 0.3` it lags like
+  the rest (mean position error 0.444 m, mean phase lag 1,144 steps).
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on
@@ -187,20 +206,20 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 0227b2e1a6373d82f40e259ee2f856dd6bedd46e
+git checkout b796d013a6342d9cd56272da107d24c2d4d014eb
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 74 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 75 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py;
-                                 # with h5py installed: 79 passed)
+                                 # with h5py installed: 80 passed)
 docker build -t ecm2027-policy . # policy service image
 ```
 
 Demonstration data is bundled under `data/` (`demo_*_ee_poses.npz`,
 end-effector poses, shape `(T, 2, 7)` = `[x, y, z, qw, qx, qy, qz]` per
-arm; the `demo_b2_*` and `demo_b3_0` bundles also carry the recorded
+arm; the `demo_b2_*` and `demo_b3_*` bundles also carry the recorded
 `gripper_pos` `(T, 2)`). The extraction tool is under `tools/`; Batch 2
 data was released 2026-11-10 and Batch 3 data was released 2026-11-17
-(one episode integrated in this package, a second tarball staged).
+(both episodes integrated in this package).
 
 ## 5. Honest limitations
 
@@ -214,8 +233,8 @@ data was released 2026-11-10 and Batch 3 data was released 2026-11-17
   by the policy: full-episode open-loop rollouts replay the recorded
   gripper state exactly (demo_b2_0: 8 open/close transitions, 58.1%
   closed; demo_b2_3: 6 transitions, 68% closed; demo_b3_0: 14
-  transitions per arm, 60.4% closed, both arms in agreement on every
-  step). The mapping is the
+  transitions per arm, 60.4% closed; demo_b3_1: 24 transitions per
+  arm, 65.5% closed, both arms in agreement on every step). The mapping is the
   starter repository's own convention (`galbot.py`: gripper joint
   open/close positions 0.0 / 1.703; `action < 0` closes, `>= 0` opens),
   but the official evaluation service has never published its expected
@@ -254,5 +273,5 @@ was exhausted for unauthenticated requests).
 ---
 
 Team TwinTeleop (ECM-122) — Toni Adreal, toniadreal11@gmail.com.
-Prepared 2026-11-17. Not yet uploaded to the submission form; the file
+Prepared 2026-11-18. Not yet uploaded to the submission form; the file
 is ready for the team lead's go-ahead.
