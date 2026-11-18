@@ -159,7 +159,7 @@ def test_evaluate_all_demos_tags_config():
         phase_window=32,
         phase_advance_cap=4,
     )
-    assert len(results) == 7
+    assert len(results) == 8
     assert all(r.phase_window == 32 for r in results)
     assert all(r.phase_advance_cap == 4 for r in results)
     assert all(r.lookahead == 2 for r in results)

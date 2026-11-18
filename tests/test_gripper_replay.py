@@ -166,10 +166,10 @@ class RealBatch2Tests(unittest.TestCase):
 class MultiDemoGripperTests(unittest.TestCase):
     def test_mixed_directory_modes(self):
         multi = MultiDemoCore.from_npz_dir(DATA_DIR, actions_dim=16, lookahead=0)
-        self.assertEqual(len(multi.demo_names), 7)
+        self.assertEqual(len(multi.demo_names), 8)
         for name in ("demo_0", "demo_2", "demo_7", "demo_9"):
             self.assertEqual(multi._cores[name].gripper_mode, "fixed")
-        for name in ("demo_b2_0", "demo_b2_3", "demo_b3_0"):
+        for name in ("demo_b2_0", "demo_b2_3", "demo_b3_0", "demo_b3_1"):
             self.assertEqual(multi._cores[name].gripper_mode, "replay")
 
     def test_selected_batch2_core_replays_full_episode(self):
