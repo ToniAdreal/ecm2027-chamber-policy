@@ -90,14 +90,14 @@ class MultiDemoSelectionTests(unittest.TestCase):
 
 
 class MultiDemoRealDataTests(unittest.TestCase):
-    def test_from_npz_dir_loads_eight_real_demos(self):
+    def test_from_npz_dir_loads_nine_real_demos(self):
         core = MultiDemoCore.from_npz_dir(DATA_DIR)
         self.assertEqual(
             core.demo_names,
             ["demo_0", "demo_2", "demo_7", "demo_9", "demo_b2_0", "demo_b2_3",
-             "demo_b3_0", "demo_b3_1"],
+             "demo_b3_0", "demo_b3_1", "demo_b3_2"],
         )
-        self.assertEqual(core.health()["num_demos"], 8)
+        self.assertEqual(core.health()["num_demos"], 9)
 
     def test_real_demo_selection_picks_exact_source_demo(self):
         core = MultiDemoCore.from_npz_dir(DATA_DIR)
@@ -160,6 +160,32 @@ class MultiDemoRealDataTests(unittest.TestCase):
         core.reset(observation={"eef_pos": demo_b3_1[0, :, 0:3]})
         self.assertEqual(core.selected, "demo_b2_0")
         self.assertEqual(core._cores["demo_b3_1"].gripper_mode, "replay")
+
+    def test_batch3_third_demo_selection_picks_earliest_tied_demo(self):
+        # Batch 3 third recording (demo_b3_2, 6163 steps, same split
+        # eef_pos/eef_quat layout + real gripper channel, released
+        # 2026-11-17): its first frame is also bit-identical to the
+        # Batch 2 rest pose (L2 0.0 vs demo_b2_0, demo_b2_3, demo_b3_0
+        # and demo_b3_1, verified 2026-11-19), so nearest-start selection
+        # ties across all five and resolves to the earliest demo
+        # (demo_b2_0) per the documented tie rule.
+        core = MultiDemoCore.from_npz_dir(DATA_DIR)
+        demo_b3_2 = load_ee_poses_npz(DATA_DIR / "demo_b3_2_ee_poses.npz")
+        grip_b3_2 = load_gripper_pos_npz(DATA_DIR / "demo_b3_2_ee_poses.npz")
+        self.assertEqual(demo_b3_2.shape, (6163, 2, 7))
+        self.assertIsNotNone(grip_b3_2)
+        self.assertEqual(grip_b3_2.shape, (6163, 2))
+        b2_0 = load_ee_poses_npz(DATA_DIR / "demo_b2_0_ee_poses.npz")
+        b3_1 = load_ee_poses_npz(DATA_DIR / "demo_b3_1_ee_poses.npz")
+        self.assertEqual(
+            float(np.linalg.norm(b2_0[0, :, 0:3] - demo_b3_2[0, :, 0:3])), 0.0
+        )
+        self.assertEqual(
+            float(np.linalg.norm(b3_1[0, :, 0:3] - demo_b3_2[0, :, 0:3])), 0.0
+        )
+        core.reset(observation={"eef_pos": demo_b3_2[0, :, 0:3]})
+        self.assertEqual(core.selected, "demo_b2_0")
+        self.assertEqual(core._cores["demo_b3_2"].gripper_mode, "replay")
 
     def test_empty_dir_raises(self):
         import tempfile

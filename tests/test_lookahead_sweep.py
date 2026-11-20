@@ -119,7 +119,7 @@ def test_sweep_is_deterministic() -> None:
 
 def test_evaluate_all_demos_tags_lookahead() -> None:
     results = evaluate_all_demos(DATA_DIR, alphas=[1.0], lookahead=4)
-    assert len(results) == 8  # one row per bundled demo
+    assert len(results) == 9  # one row per bundled demo
     assert all(r.lookahead == 4 for r in results)
     assert all(r.alpha == 1.0 for r in results)
     assert {r.demo for r in results} == {
@@ -131,6 +131,7 @@ def test_evaluate_all_demos_tags_lookahead() -> None:
         "demo_b2_3",
         "demo_b3_0",
         "demo_b3_1",
+        "demo_b3_2",
     }
     # At lookahead 4 the robot outruns the recording on every demo, so
     # the mean phase lag is negative everywhere (exact reproduction
