@@ -1,0 +1,33 @@
+# ECM 2027 policy image — official gRPC transport (v1).
+#
+# Builds the policy as a Docker image for the evaluator's official
+# participant interface (upstream starter repo, README "Participant
+# policy interface", 2026-11-20): a gRPC client that connects to the
+# evaluator's server at ECM27_EVAL_ENDPOINT. Modelled on the upstream
+# example (examples/policy_docker/Dockerfile), with our replay-follow
+# policy (ecm_policy/grpc_client.py) in place of the example policy.
+#
+# BUILD NOT VERIFIED ON THE DEV HOST: this VM has no Docker, so the
+# image has never been built here. Build it where Docker exists:
+#   docker build -f Dockerfile.grpc -t ecm27-policy:latest .
+#   docker save -o ecm27-policy.tar ecm27-policy:latest
+# The delivery channel for the image (registry reference or archive
+# upload) is still unpublished by the organizers (starter issue #6,
+# open, 0 comments); do not claim a submission route until it is.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN python -m pip install --no-cache-dir \
+    grpcio==1.85.3 protobuf==7.36.2 "numpy>=1.26,<3"
+
+COPY ecm_policy/ ./ecm_policy/
+COPY data/ ./data/
+COPY README.md ./
+
+ENV PYTHONPATH=/app \
+    ECM_TRAJECTORY_DIR=/app/data
+
+# The evaluator sets ECM27_EVAL_ENDPOINT to the server's host:port.
+# No port is listened on: the policy is a gRPC client.
+ENTRYPOINT ["python", "-u", "-m", "ecm_policy.grpc_client"]

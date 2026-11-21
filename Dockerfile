@@ -3,9 +3,11 @@
 # Mirrors the submission shape described in the official starter README:
 # a Docker image containing the policy, its dependencies and its data,
 # exposing health / reset / predict / close, running fully offline.
-# The official transport and message schemas were still unpublished as of
-# 2026-10-31; this image serves the JSON-over-HTTP contract implemented in
-# ecm_policy/service.py and can be re-skinned when the spec lands.
+# The official transport is now published (2026-11-20, upstream README
+# "Participant policy interface" + policy_v1.proto); the gRPC client
+# for it lives in ecm_policy/grpc_client.py with its own image
+# (Dockerfile.grpc). This HTTP service image is kept as the local
+# development / smoke-test shape.
 FROM python:3.12-slim
 
 WORKDIR /app

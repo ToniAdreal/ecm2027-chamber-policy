@@ -13,8 +13,9 @@ time, the demo whose first-frame end-effector positions are nearest to the
 robot's observed initial positions (`ecm_policy/multidemo.py`). Selection
 happens only at reset, so a rollout never jumps between demos mid-episode;
 without an observation at reset the first demo is used. The bundled set now
-holds six real episodes: four Batch 1 (`demo_0`, `demo_2`, `demo_7`,
-`demo_9`) and two Batch 2 (`demo_b2_0`, `demo_b2_3`), extracted from six
+holds nine real episodes: four Batch 1 (`demo_0`, `demo_2`, `demo_7`,
+`demo_9`), two Batch 2 (`demo_b2_0`, `demo_b2_3`), and three Batch 3
+(`demo_b3_0`, `demo_b3_1`, `demo_b3_2`), extracted from nine
 independent recordings of the official dataset
 (`rocochallenge2025/ecm2027_sim_data`).
 
@@ -185,6 +186,53 @@ python tools/extract_demo_trajectory.py \
   --input /path/to/replay_state_ee_poses.hdf5 --episode demo_7 \
   --output data/demo_7_ee_poses.npz
 ```
+
+## Verification status (2026-11-21, official gRPC policy client milestone 15)
+
+Upstream published the participant policy interface on 2026-11-20
+(starter repo `robochallenge/ecm2027_sim_track`, commits `a1dff75` /
+`aa1255e`: `robofinals/distributed/policy_v1.proto`, README section
+"Participant policy interface", example Docker policy, 13-point
+chamber scoring). This repo now speaks it: `ecm_policy/grpc_client.py`
+wraps `MultiDemoCore` behind the `GetObservation` / `Step` protocol,
+emitting the preferred 19-dimensional actions (arm target poses in
+`(x, y, z, w)` order, gripper negative-closes, zero base velocity),
+with local validation of everything the service rejects as
+`INVALID_ARGUMENT` (dimension, finiteness, quaternion norms below
+`1e-6`, positions outside ±10 m). The generated `policy_v1_pb2.py` is
+vendored from the upstream repo (commit `a1dff75`). `Dockerfile.grpc`
+builds the policy image the interface asks for; the build is NOT
+verified on this host (no Docker here), and the delivery channel for
+the image (registry reference or archive upload) is still unpublished
+by the organizers — starter issue #6 is still open with 0 comments,
+and #4 (whether scripted / hybrid policies are allowed) is still
+unanswered, so the form.gov.sg README package remains the only
+submission route and the scripted-policy question stays open.
+
+Verified against a fake in-process evaluator that replays real demo
+bundles as protocol observations through real protobuf serialization
+(`tests/test_grpc_client.py`, 9 tests): full 4,106-step episode of
+`demo_b2_0` completes with 0 action violations and 99.61% gripper
+agreement against the recording; a two-environment run (one env per
+demo) stays independent with per-env reset on termination;
+`FAILED_PRECONDITION` on `Step` recovers via re-`GetObservation`;
+transient `UNAVAILABLE` on `GetObservation` retries; the run is
+deterministic across repeats. The socket layer itself (`grpcio`) is
+NOT tested here: `grpcio` is not installable on this host (PyPI is
+unreachable behind the proxy, tried 2026-11-21 on both the default
+index and the Aliyun mirror), so the tests drive a fake channel and
+the real `grpc.insecure_channel` path in `main()` is untested. The
+frame assumption is documented in the module: recorded EE poses are
+passed through as-is with zero base velocity, and whether they
+coincide with the evaluator's robot-root frame depends on the spawn
+pose (upstream issue #5, still open).
+
+The suite is now **90 tests**: 85 pass under the system Python
+(`python3 -m pytest tests/ -q`; the 5 Batch 2 layout tests need h5py
+and are skipped there), and 81 pass under the data-sample venv Python
+(the 9 new gRPC tests need protobuf, which that venv lacks — same
+skip pattern as the h5py-gated tests). No single interpreter on this
+host runs all 90.
 
 ## Verification status (2026-11-14, observation-noise sweep milestone 9)
 
