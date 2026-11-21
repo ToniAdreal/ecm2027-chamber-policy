@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-20 (Beijing)
-**Policy version:** v3.9 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking; submission defaults lookahead 2, phase advance cap 4; Batch 3 third demo integrated)
+**Submission date:** 2026-11-21 (Beijing)
+**Policy version:** v4.0 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client; submission defaults lookahead 2, phase advance cap 4; Batch 3 third demo integrated)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `80dbfaf9704cc1f8c262dd1ce772d33bbd33064d`
-("ECM 2027 M14: Batch 3 third demo integrated (demo_b3_2, 6163 steps, split layout + gripper); robust sweep re-run on 9 demos, 432 rollouts, cap4 default holds; 81 tests green", 2026-11-20)
+Commit submitted: `41b3a2b3df43d76de334288e6e677bcc9ca3bc5d`
+("ECM 2027 M15: official gRPC policy client adapter (upstream interface published 2026-11-20)", 2026-11-21)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -88,23 +88,57 @@ multi-demo selection in `ecm_policy/multidemo.py`):
    `ECM_TRAJECTORY_DIR` is set or when `trajectory_path` points at a
    directory, for use with the starter repository's own evaluation
    harness.
+3. **Official gRPC policy client** (`ecm_policy/grpc_client.py`,
+   new 2026-11-21) — speaks the participant interface the upstream
+   starter repo published 2026-11-20 (`policy_v1.proto`, README
+   "Participant policy interface"): the policy is a gRPC client
+   connecting to the evaluator's server at `ECM27_EVAL_ENDPOINT`,
+   exchanging `GetObservation` / `Step` calls with the preferred
+   19-dimensional actions (arm target poses in `(x, y, z, w)` order,
+   gripper negative-closes, zero base velocity). The 20-dimensional
+   legacy core output is converted by dropping the wheel commands and
+   appending a zero base velocity; quaternions are emitted in
+   `(x, y, z, w)` order. The generated `policy_v1_pb2.py` is vendored
+   from the upstream repo. A `Dockerfile.grpc` builds the policy image
+   the interface asks for; the build is NOT verified on this host (no
+   Docker here), and the delivery channel for the image is still
+   unpublished by the organizers (see §6).
 
-A `Dockerfile` is included in the repository. The starter README still
-lists the official Docker service transport and message schemas as
-pending; the service follows the operation names the starter README
-publishes.
+A `Dockerfile` is included in the repository. The starter README now
+publishes the official Docker service transport and message schemas
+(2026-11-20); the service follows the operation names the starter README
+publishes, and the gRPC client follows the published protocol.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **81 / 81 tests pass** in the repository test suite, measured 2026-11-20
-  in an isolated clone at the submitted commit (76 pass under the system
+* **90 / 90 tests pass** in the repository test suite, measured 2026-11-21
+  in an isolated clone at the submitted commit (85 pass under the system
   Python; the 5 Batch 2 layout tests need h5py and pass under the
-  data-sample venv Python, where the full suite runs 81/81), including:
+  data-sample venv Python, where the full suite runs 81/81 with the 9
+  new gRPC tests skipped — that venv has h5py but no protobuf, and
+  PyPI is unreachable from this host to install it; no single
+  interpreter on this host runs all 90), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 and Batch 3 demos and
   fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase
   to trajectory end, no mid-episode demo switch), multi-demo selection,
   adapter, service, and core tests.
+* Official gRPC client tests (`tests/test_grpc_client.py`, 9 tests):
+  a fake in-process evaluator replays real demo bundles as protocol
+  observations through real protobuf serialization. A full 4,106-step
+  episode of `demo_b2_0` completes with 0 action violations and 99.61%
+  gripper agreement against the recording; a two-environment run (one
+  env per demo) stays independent with per-env reset on termination;
+  `FAILED_PRECONDITION` on `Step` recovers via re-`GetObservation`;
+  transient `UNAVAILABLE` on `GetObservation` retries; the run is
+  deterministic across repeats. The socket layer itself (`grpcio`) is
+  NOT tested here: `grpcio` is not installable on this host (PyPI
+  unreachable behind the proxy), so the tests drive a fake channel and
+  the real `grpc.insecure_channel` path is untested. The frame
+  assumption is documented in the module: recorded EE poses are passed
+  through as-is with zero base velocity, and whether they coincide with
+  the evaluator's robot-root frame depends on the spawn pose (upstream
+  issue #5, still open).
 * Offline lagged-follower evaluation (`ecm_policy/evaluate.py`, full
   table in `evaluation/results.md`): a simulated robot that moves a
   fraction `alpha` of the way toward each commanded pose per step.
@@ -226,12 +260,17 @@ publishes.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 80dbfaf9704cc1f8c262dd1ce772d33bbd33064d
+git checkout 41b3a2b3df43d76de334288e6e677bcc9ca3bc5d
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 76 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 85 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py;
-                                 # with h5py installed: 81 passed)
+                                 # with h5py installed: 81 passed, 9
+                                 # skipped — the 9 gRPC tests need
+                                 # protobuf)
 docker build -t ecm2027-policy . # policy service image
+docker build -f Dockerfile.grpc -t ecm27-policy:latest . # official
+                                 # gRPC policy image (build NOT verified
+                                 # on the dev host: no Docker there)
 ```
 
 Demonstration data is bundled under `data/` (`demo_*_ee_poses.npz`,
@@ -275,30 +314,36 @@ data was released 2026-11-10 and Batch 3 data was released 2026-11-17
   resubmit an improved package (for example with Batch 3 demonstrations)
   if evaluation feedback calls for it.
 
-## 6. Upstream issue filed
+## 6. Upstream issues filed and answered
 
 While setting up the starter repository the team found and reported a
 missing-module defect in the official starter code:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/1
 (`isaaclab_teleop` present in source but not installed; also missing
-`mdp` exports). Still open with no organizer reply as of 2026-11-19.
+`mdp` exports). Still open with no organizer reply as of 2026-11-21.
 A second upstream issue appeared 2026-11-13 and is noted for the
 organizers, not filed by this team:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/7
-(sponge spawn z jitter can start the sponge inside the table). The
-starter README still lists the official Docker service transport and
-message schemas as pending (last verified 2026-11-19; no new upstream
-commits since 2026-11-04). Five further upstream issues are still open
-with no organizer reply as of 2026-11-19, including #4 (whether
-scripted / hybrid policies are allowed, and the end-effector pose
-frame) and #6 (ranked metric, seeds, submission format before the
-Docker spec); a new issue #8 (which objects are randomized, how the
-lid-lock and wipe milestones are scored) appeared 2026-11-19. Until
-the organizers answer #4 and #6, this README package remains the only
-submission route and its acceptance is unverified.
+(sponge spawn z jitter can start the sponge inside the table). On
+2026-11-20 the organizers merged the participant policy interface and
+evaluation into main (commits `a1dff75` / `aa1255e`: `policy_v1.proto`,
+README "Participant policy interface", example Docker policy,
+13-point chamber scoring — open chamber 2, extract old part 1, place
+in box 1, sponge + wipe five faces 6, replacement part 2, close
+chamber 1). The interface answers the submission-format question, but
+the delivery channel for the policy image (registry reference or
+archive upload) is still unpublished, and five further upstream issues
+are still open with no organizer reply as of 2026-11-21, including #4
+(whether scripted / hybrid policies are allowed, and the
+end-effector pose frame) and #6 (ranked metric, seeds, submission
+format before the Docker spec); a new issue #8 (which objects are
+randomized, how the lid-lock and wipe milestones are scored) appeared
+2026-11-19. Until the organizers answer #4 and publish the image
+delivery channel, this README package remains the only submission
+route and its acceptance is unverified.
 
 ---
 
 Team TwinTeleop (ECM-122) — Toni Adreal, toniadreal11@gmail.com.
-Prepared 2026-11-20. Not yet uploaded to the submission form; the file
+Prepared 2026-11-21. Not yet uploaded to the submission form; the file
 is ready for the team lead's go-ahead.
