@@ -28,7 +28,10 @@ core therefore:
   ``BinaryJointPositionActionCfg``), thresholded at the joint-range
   midpoint 0.8515 into the binary gripper action (``< 0`` close,
   ``>= 0`` open, per the starter repo's ``BinaryJointPositionAction``
-  convention). Demos without a gripper channel (all of Batch 1) still
+  convention). The threshold is configurable (``gripper_threshold``,
+  default the midpoint); the M16 sweep (2026-11-21) measures how much
+  gripper agreement is lost if the real transition point differs from
+  the midpoint. Demos without a gripper channel (all of Batch 1) still
   hold both grippers at a fixed configurable command, and the policy
   commands zero wheel velocity throughout.
 
@@ -57,6 +60,7 @@ documented here rather than silently assumed.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -86,15 +90,21 @@ GRIPPER_CLOSE_CMD = -1.0
 GRIPPER_OPEN_CMD = 1.0
 
 
-def _gripper_commands_for(gripper_pos_row: np.ndarray) -> np.ndarray:
+def _gripper_commands_for(
+    gripper_pos_row: np.ndarray, threshold: float = GRIPPER_THRESHOLD
+) -> np.ndarray:
     """Binary gripper commands for one recorded gripper_pos row (2,).
 
-    Joint position at or above the range midpoint means the demo's
+    Joint position at or above ``threshold`` means the demo's
     gripper was closed there, so emit the close command (< 0); below
-    it, emit the open command (>= 0).
+    it, emit the open command (>= 0). The default threshold is the
+    joint-range midpoint; the M16 sweep (2026-11-21,
+    tools/sweep_gripper_threshold.py) varies it to measure how much
+    gripper agreement is lost if the real transition point differs
+    from the midpoint.
     """
     return np.where(
-        np.asarray(gripper_pos_row, dtype=np.float64) >= GRIPPER_THRESHOLD,
+        np.asarray(gripper_pos_row, dtype=np.float64) >= threshold,
         GRIPPER_CLOSE_CMD,
         GRIPPER_OPEN_CMD,
     )
@@ -127,6 +137,7 @@ class ReplayFollowCore:
         gripper_left: float = 1.0,
         gripper_right: float = 1.0,
         gripper_pos: np.ndarray | None = None,
+        gripper_threshold: float = GRIPPER_THRESHOLD,
         action_quat_order: str = "wxyz",
     ):
         traj = np.asarray(ee_poses, dtype=np.float64)
@@ -152,6 +163,10 @@ class ReplayFollowCore:
             )
         if action_quat_order not in ("wxyz", "xyzw"):
             raise ValueError(f"unknown action_quat_order: {action_quat_order!r}")
+        if not math.isfinite(float(gripper_threshold)):
+            raise ValueError(
+                f"gripper_threshold must be finite, got {gripper_threshold!r}"
+            )
         if phase_advance_cap is not None and int(phase_advance_cap) < 0:
             raise ValueError(
                 f"phase_advance_cap must be >= 0, got {phase_advance_cap}"
@@ -166,6 +181,7 @@ class ReplayFollowCore:
         )
         self.gripper_left = float(gripper_left)
         self.gripper_right = float(gripper_right)
+        self.gripper_threshold = float(gripper_threshold)
         self.action_quat_order = action_quat_order
         self._phase = 0
         self._steps = 0
@@ -331,7 +347,11 @@ class ReplayFollowCore:
                 pose[3:7] = pose[[4, 5, 6, 3]]  # stored wxyz -> xyzw
             parts.append(pose)
         if self._gripper_pos is not None:
-            parts.append(_gripper_commands_for(self._gripper_pos[target_index]))
+            parts.append(
+                _gripper_commands_for(
+                    self._gripper_pos[target_index], self.gripper_threshold
+                )
+            )
         else:
             parts.append(np.array([self.gripper_left, self.gripper_right]))
         action = np.concatenate(parts)

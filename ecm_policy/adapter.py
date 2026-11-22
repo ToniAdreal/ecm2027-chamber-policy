@@ -53,7 +53,7 @@ except ImportError:  # pragma: no cover - exercised only off-sim hosts
 
 from policy.base import BasePolicy
 
-from .core import ReplayFollowCore
+from .core import GRIPPER_THRESHOLD, ReplayFollowCore
 from .multidemo import MultiDemoCore
 from .trajectory import load_ee_poses_hdf5, load_ee_poses_npz
 
@@ -107,6 +107,15 @@ class ChamberReplayPolicy(BasePolicy):
             phase_advance_cap=int(usr_args.get("policy_phase_advance_cap", 4)),
             gripper_left=float(usr_args.get("policy_gripper_left", 1.0)),
             gripper_right=float(usr_args.get("policy_gripper_right", 1.0)),
+            # Default replay threshold is the joint-range midpoint
+            # (GRIPPER_THRESHOLD, 0.8515): the M16 threshold sweep
+            # (2026-11-21, tools/sweep_gripper_threshold.py) measures
+            # the agreement cost of moving it; the submission keeps the
+            # midpoint. The evaluator can still override via
+            # policy_gripper_threshold.
+            gripper_threshold=float(
+                usr_args.get("policy_gripper_threshold", GRIPPER_THRESHOLD)
+            ),
             action_quat_order=str(usr_args.get("policy_action_quat_order", "wxyz")),
         )
         demo_dir = self._resolve_demo_dir(usr_args)

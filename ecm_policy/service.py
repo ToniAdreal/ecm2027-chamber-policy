@@ -39,7 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import ReplayFollowCore
+from .core import GRIPPER_THRESHOLD, ReplayFollowCore
 from .multidemo import MultiDemoCore
 
 POLICY_NAME = "twin-teleop-replay-follow"
@@ -197,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
     # and ecm_policy/adapter.py for the full reasoning.
     parser.add_argument("--phase-advance-cap", type=int, default=4)
     parser.add_argument("--phase-window", type=int, default=250)
+    # Default replay threshold is the joint-range midpoint (0.8515):
+    # M16 threshold sweep, 2026-11-21 — see tools/sweep_gripper_threshold.py.
+    parser.add_argument("--gripper-threshold", type=float, default=GRIPPER_THRESHOLD)
     parser.add_argument("--no-shutdown-on-close", action="store_true",
                         help="keep serving after /close (useful for local tests)")
     args = parser.parse_args(argv)
@@ -205,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         core = ReplayFollowCore.from_npz(
             args.trajectory, actions_dim=args.actions_dim, lookahead=args.lookahead,
             phase_window=args.phase_window, phase_advance_cap=args.phase_advance_cap,
+            gripper_threshold=args.gripper_threshold,
         )
         core_desc = f"trajectory steps={core.num_steps} gripper={core.gripper_mode}"
     else:
@@ -212,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         core = MultiDemoCore.from_npz_dir(
             demo_dir, actions_dim=args.actions_dim, lookahead=args.lookahead,
             phase_window=args.phase_window, phase_advance_cap=args.phase_advance_cap,
+            gripper_threshold=args.gripper_threshold,
         )
         core_desc = f"demos={core.demo_names}"
     server = build_server(

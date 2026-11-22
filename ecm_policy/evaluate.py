@@ -65,6 +65,10 @@ class LaggedFollowerResult:
     noise_sigma_m: float = 0.0  # std of Gaussian noise added to the observed EE positions
     phase_window: int = 250  # forward search window of the phase tracker
     phase_advance_cap: int | None = None  # max phase jump per step (None = uncapped)
+    gripper_threshold: float = GRIPPER_THRESHOLD  # policy replay threshold; the
+    # ground-truth recorded-closed labels always use GRIPPER_THRESHOLD (the
+    # documented midpoint convention), so varying this measures the
+    # agreement lost when the policy's threshold differs from it.
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -106,6 +110,7 @@ def evaluate_lagged_follower(
     noise_seed: int = 0,
     phase_window: int = 250,
     phase_advance_cap: int | None = None,
+    gripper_threshold: float = GRIPPER_THRESHOLD,
 ) -> LaggedFollowerResult:
     """Run one demo end to end against a lagged follower and score it.
 
@@ -117,6 +122,10 @@ def evaluate_lagged_follower(
     (``noise_seed`` plus a CRC of the demo name), so a run is exactly
     reproducible and different demos do not share one noise sequence.
     ``noise_sigma_m = 0`` reproduces the noiseless evaluation exactly.
+    ``gripper_threshold`` is the policy's replay threshold only; the
+    recorded-closed ground truth is always labelled at GRIPPER_THRESHOLD
+    (the documented midpoint), so a threshold different from it measures
+    the agreement cost of a misplaced transition point.
     """
     if not (0.0 < alpha <= 1.0):
         raise ValueError(f"alpha must be in (0, 1], got {alpha}")
@@ -141,6 +150,7 @@ def evaluate_lagged_follower(
         traj,
         lookahead=lookahead,
         gripper_pos=gripper_pos,
+        gripper_threshold=gripper_threshold,
         phase_window=phase_window,
         phase_advance_cap=phase_advance_cap,
     )
@@ -218,6 +228,7 @@ def evaluate_lagged_follower(
         noise_sigma_m=float(noise_sigma_m),
         phase_window=int(phase_window),
         phase_advance_cap=phase_advance_cap,
+        gripper_threshold=float(gripper_threshold),
     )
 
 
@@ -230,6 +241,7 @@ def evaluate_all_demos(
     noise_seed: int = 0,
     phase_window: int = 250,
     phase_advance_cap: int | None = None,
+    gripper_threshold: float = GRIPPER_THRESHOLD,
 ) -> list[LaggedFollowerResult]:
     """Evaluate every bundled demo at every lag fraction, in filename order."""
     from pathlib import Path
@@ -253,6 +265,7 @@ def evaluate_all_demos(
                     noise_seed=noise_seed,
                     phase_window=phase_window,
                     phase_advance_cap=phase_advance_cap,
+                    gripper_threshold=gripper_threshold,
                 )
             )
     return results
