@@ -3,7 +3,7 @@
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
 **Submission date:** 2026-11-21 (Beijing)
-**Policy version:** v4.0 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client; submission defaults lookahead 2, phase advance cap 4; Batch 3 third demo integrated)
+**Policy version:** v4.1 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client + gripper-threshold sensitivity sweep; submission defaults lookahead 2, phase advance cap 4, gripper threshold 0.8515; Batch 3 third demo integrated)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `41b3a2b3df43d76de334288e6e677bcc9ca3bc5d`
-("ECM 2027 M15: official gRPC policy client adapter (upstream interface published 2026-11-20)", 2026-11-21)
+Commit submitted: `0d9ea1b9435c0c50826e1207795ffc9433f812b7`
+("ECM 2027 M16: gripper replay threshold sensitivity sweep (360 rollouts, 9 demos; midpoint default robust)", 2026-11-21)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -111,18 +111,18 @@ publishes, and the gRPC client follows the published protocol.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **90 / 90 tests pass** in the repository test suite, measured 2026-11-21
-  in an isolated clone at the submitted commit (85 pass under the system
+* **99 / 99 tests pass** in the repository test suite, measured 2026-11-21
+  in an isolated clone at the submitted commit (94 pass under the system
   Python; the 5 Batch 2 layout tests need h5py and pass under the
-  data-sample venv Python, where the full suite runs 81/81 with the 9
-  new gRPC tests skipped — that venv has h5py but no protobuf, and
+  data-sample venv Python, where the full suite runs 90/90 with the 9
+  gRPC tests skipped — that venv has h5py but no protobuf, and
   PyPI is unreachable from this host to install it; no single
-  interpreter on this host runs all 90), including:
+  interpreter on this host runs all 99), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 and Batch 3 demos and
   fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase
   to trajectory end, no mid-episode demo switch), multi-demo selection,
-  adapter, service, and core tests.
+  adapter, service, core, and gripper-threshold tests.
 * Official gRPC client tests (`tests/test_grpc_client.py`, 9 tests):
   a fake in-process evaluator replays real demo bundles as protocol
   observations through real protobuf serialization. A full 4,106-step
@@ -248,6 +248,25 @@ publishes, and the gRPC client follows the published protocol.
   0.0154 m with 97.8% gripper agreement; at `alpha = 0.3` it lags like
   the rest (mean position error 0.539 m, mean phase lag 1,215 steps,
   gripper agreement 48.0%).
+* Gripper-threshold sensitivity sweep (`tools/sweep_gripper_threshold.py`, full table
+  in `evaluation/gripper_threshold_sweep.md`, 2026-11-21): five policy
+  replay thresholds (0.2 / 0.425 / 0.8515 / 1.28 / 1.5) at `alpha` 0.3 /
+  0.5 with lookahead 2 and advance cap 4, for Gaussian observation noise
+  (sigma 0 / 1 mm / 5 mm / 1 cm), over all 9 bundled demos (360
+  rollouts). The evaluator's ground-truth recorded-closed labels always
+  use the joint-range midpoint 0.8515; only the policy's threshold
+  varies. The midpoint column reproduces the M14 cap-4 numbers exactly
+  (max difference 2.1e-14). Thresholds 0.2 and 0.425 match the midpoint
+  within ~1 percentage point of gripper agreement in every cell, while
+  1.28 and 1.5 collapse it by 20–45 points (e.g. noiseless `alpha = 0.5`:
+  99.2% at the midpoint vs 58.3% at 1.28 and 51.8% at 1.5) — the
+  recorded gripper signal is strongly bimodal, so any threshold in the
+  low half of the joint range lands in the sparse transition band and
+  performs the same, and only a transition point above ~1.1 would cost
+  agreement. The midpoint stays the submission default: it is the
+  documented convention and the best noiseless performer. Position
+  error is exactly identical across thresholds in every cell, as
+  expected (the gripper action does not feed the pose tracker).
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on
@@ -260,11 +279,11 @@ publishes, and the gRPC client follows the published protocol.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 41b3a2b3df43d76de334288e6e677bcc9ca3bc5d
+git checkout 0d9ea1b9435c0c50826e1207795ffc9433f812b7
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 85 passed, 5 skipped (the 5
+python3 -m pytest tests/ -q      # expect: 94 passed, 5 skipped (the 5
                                  # Batch 2 layout tests need h5py;
-                                 # with h5py installed: 81 passed, 9
+                                 # with h5py installed: 90 passed, 9
                                  # skipped — the 9 gRPC tests need
                                  # protobuf)
 docker build -t ecm2027-policy . # policy service image
@@ -325,6 +344,11 @@ A second upstream issue appeared 2026-11-13 and is noted for the
 organizers, not filed by this team:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/7
 (sponge spawn z jitter can start the sponge inside the table). On
+2026-11-21 the organizers committed a fix for that issue's root cause
+(`667517b`: sponge spawn height raised from 0.78 to 0.85 m in
+`robofinals_tasks/chamber_service_task.py`); the issue itself is still
+open with no organizer comment as of 2026-11-21, so it is not treated
+as closed. On
 2026-11-20 the organizers merged the participant policy interface and
 evaluation into main (commits `a1dff75` / `aa1255e`: `policy_v1.proto`,
 README "Participant policy interface", example Docker policy,
