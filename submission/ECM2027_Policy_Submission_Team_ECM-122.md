@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-21 (Beijing)
-**Policy version:** v4.1 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client + gripper-threshold sensitivity sweep; submission defaults lookahead 2, phase advance cap 4, gripper threshold 0.8515; Batch 3 third demo integrated)
+**Submission date:** 2026-11-23 (Beijing)
+**Policy version:** v4.2 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client + gripper-threshold sensitivity sweep + issue-#8 scoring analysis; submission defaults lookahead 2, phase advance cap 4, gripper threshold 0.8515; Batch 3 third demo integrated)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `0d9ea1b9435c0c50826e1207795ffc9433f812b7`
-("ECM 2027 M16: gripper replay threshold sensitivity sweep (360 rollouts, 9 demos; midpoint default robust)", 2026-11-21)
+Commit submitted: `5a42fc7c767698ed0e245f8a4af7758f370c08db`
+("ECM 2027 M17: answer issue #8 scoring questions from task code + demo data (13-pt spec, sponge-only randomization, no lid-lock point; robot base fixed in data vs randomized in code)", 2026-11-23)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -101,8 +101,9 @@ multi-demo selection in `ecm_policy/multidemo.py`):
    `(x, y, z, w)` order. The generated `policy_v1_pb2.py` is vendored
    from the upstream repo. A `Dockerfile.grpc` builds the policy image
    the interface asks for; the build is NOT verified on this host (no
-   Docker here), and the delivery channel for the image is still
-   unpublished by the organizers (see §6).
+   Docker here). The organizers published the Docker submission route
+   by mail on 2026-11-20: the policy image is submitted through the
+   official form (see §6).
 
 A `Dockerfile` is included in the repository. The starter README now
 publishes the official Docker service transport and message schemas
@@ -111,13 +112,13 @@ publishes, and the gRPC client follows the published protocol.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **99 / 99 tests pass** in the repository test suite, measured 2026-11-21
-  in an isolated clone at the submitted commit (94 pass under the system
-  Python; the 5 Batch 2 layout tests need h5py and pass under the
-  data-sample venv Python, where the full suite runs 90/90 with the 9
-  gRPC tests skipped — that venv has h5py but no protobuf, and
-  PyPI is unreachable from this host to install it; no single
-  interpreter on this host runs all 99), including:
+* **113 / 113 tests pass** in the repository test suite, measured 2026-11-23
+  in an isolated clone at the submitted commit (100 pass under the system
+  Python; the 13 skipped tests need h5py — 5 Batch 2 layout tests and 8
+  scoring-analysis tests — and pass under the data-sample venv Python,
+  where the full suite runs 104/104 with the 9 gRPC tests skipped — that
+  venv has h5py but no protobuf, and PyPI is unreachable from this host
+  to install it; no single interpreter on this host runs all 113), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 and Batch 3 demos and
   fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase
@@ -267,6 +268,28 @@ publishes, and the gRPC client follows the published protocol.
   documented convention and the best noiseless performer. Position
   error is exactly identical across thresholds in every cell, as
   expected (the gripper action does not feed the pose tracker).
+* Issue-#8 scoring analysis (`tools/analyze_scoring.py`, full table in
+  `evaluation/scoring_analysis.md`, 2026-11-23): the 13-point scoring
+  spec is read from the starter repo's task code, and the demo data's
+  `initial_state` root poses are measured against the code's
+  randomization claims. Only the sponge pose is randomized in the data
+  (position jitter within the code's +/-0.05 m band in x/y, yaw spread
+  2.80 rad; recorded z 0.76-0.81 m straddles the spawn band's low edge,
+  i.e. the pose is post-settle on the table). The robot base pose is
+  bit-identical in every sampled initial state although the task code
+  samples +/-0.10 m / +/-0.50 rad per reset, so the policy's
+  zero-base-velocity assumption matches the demo distribution, not
+  necessarily the eval distribution (upstream issue #5). Chamber, both
+  parts, table and lid joints are bit-identical: nothing else is
+  randomized. There is no scored lid-lock point: the lid is scored as
+  lift (1a), stable-open (1b) and stable-closed (6) only, and the word
+  "lock" appears in the task file only in the episode description
+  string. Each wipe face is worth 1 point after 0.5 s of continuous
+  sponge-chamber contact while that face is the nearest cavity face to
+  the sponge centre (within 0.08 m, inside the cavity). Per-step demo
+  recordings carry no lid angle, object pose or contact flag, so the
+  wipe and lid scoring rules cannot be reconstructed from demo data;
+  the answers rest on the task code and the organizer mail.
 * The starter repository's 7 supplied lightweight regression tests also
   pass on this host (no simulator needed).
 * **No score is claimed.** The policy has not been run in Isaac Sim on
@@ -279,13 +302,13 @@ publishes, and the gRPC client follows the published protocol.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 0d9ea1b9435c0c50826e1207795ffc9433f812b7
+git checkout 5a42fc7c767698ed0e245f8a4af7758f370c08db
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 94 passed, 5 skipped (the 5
-                                 # Batch 2 layout tests need h5py;
-                                 # with h5py installed: 90 passed, 9
-                                 # skipped — the 9 gRPC tests need
-                                 # protobuf)
+python3 -m pytest tests/ -q      # expect: 100 passed, 13 skipped (the 13
+                                 # need h5py: 5 Batch 2 layout + 8
+                                 # scoring-analysis tests; with h5py
+                                 # installed: 104 passed, 9 skipped —
+                                 # the 9 gRPC tests need protobuf)
 docker build -t ecm2027-policy . # policy service image
 docker build -f Dockerfile.grpc -t ecm27-policy:latest . # official
                                  # gRPC policy image (build NOT verified
@@ -297,7 +320,9 @@ end-effector poses, shape `(T, 2, 7)` = `[x, y, z, qw, qx, qy, qz]` per
 arm; the `demo_b2_*` and `demo_b3_*` bundles also carry the recorded
 `gripper_pos` `(T, 2)`). The extraction tool is under `tools/`; Batch 2
 data was released 2026-11-10 and Batch 3 data was released 2026-11-17
-(all three episodes integrated in this package).
+(all three episodes integrated in this package). The organizer dataset
+has since grown to 800 training episodes (mail of 2026-11-20); the
+bundled 9 demos are a subset, not the full set.
 
 ## 5. Honest limitations
 
@@ -328,10 +353,11 @@ data was released 2026-11-10 and Batch 3 data was released 2026-11-17
   simulator. Organizer-side evaluation is the intended validation step;
   the team welcomes the evaluation feedback the organizers send within
   5 working days and will iterate on it.
-* **Resubmission.** The team understands resubmission is allowed before
-  the policy submission deadline of **2026-12-30 12:00 SGT** and will
-  resubmit an improved package (for example with Batch 3 demonstrations)
-  if evaluation feedback calls for it.
+* **Resubmission.** The organizers allow up to five submissions in
+  total including resubmissions, before the policy submission deadline
+  of **2026-12-30 12:00 SGT**, and email evaluation results within five
+  working days of each submission. The team will resubmit an improved
+  package if evaluation feedback calls for it.
 
 ## 6. Upstream issues filed and answered
 
@@ -339,35 +365,48 @@ While setting up the starter repository the team found and reported a
 missing-module defect in the official starter code:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/1
 (`isaaclab_teleop` present in source but not installed; also missing
-`mdp` exports). Still open with no organizer reply as of 2026-11-21.
+`mdp` exports). Still open with no organizer reply as of 2026-11-23.
 A second upstream issue appeared 2026-11-13 and is noted for the
 organizers, not filed by this team:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/7
 (sponge spawn z jitter can start the sponge inside the table). On
 2026-11-21 the organizers committed a fix for that issue's root cause
 (`667517b`: sponge spawn height raised from 0.78 to 0.85 m in
-`robofinals_tasks/chamber_service_task.py`); the issue itself is still
-open with no organizer comment as of 2026-11-21, so it is not treated
-as closed. On
+`robofinals_tasks/chamber_service_task.py`), followed the same day by
+`07d962a` (keep the service table static on GPU); the issue itself is
+still open with no organizer comment as of 2026-11-23, so it is not
+treated as closed. On
 2026-11-20 the organizers merged the participant policy interface and
 evaluation into main (commits `a1dff75` / `aa1255e`: `policy_v1.proto`,
 README "Participant policy interface", example Docker policy,
 13-point chamber scoring — open chamber 2, extract old part 1, place
 in box 1, sponge + wipe five faces 6, replacement part 2, close
-chamber 1). The interface answers the submission-format question, but
-the delivery channel for the policy image (registry reference or
-archive upload) is still unpublished, and five further upstream issues
-are still open with no organizer reply as of 2026-11-21, including #4
-(whether scripted / hybrid policies are allowed, and the
-end-effector pose frame) and #6 (ranked metric, seeds, submission
-format before the Docker spec); a new issue #8 (which objects are
-randomized, how the lid-lock and wipe milestones are scored) appeared
-2026-11-19. Until the organizers answer #4 and publish the image
-delivery channel, this README package remains the only submission
-route and its acceptance is unverified.
+chamber 1). The same day the organizers mailed all registered teams:
+the simulation dataset now holds 800 training episodes, the updated
+evaluation platform is live, and the Docker policy image is submitted
+through the official form at
+https://form.gov.sg/6ae35050aafe2da79edea132 (up to five submissions
+per team including resubmissions; results emailed within five working
+days, with a report where applicable). The image delivery channel is
+therefore published; this PDF remains the human-readable policy
+description, while the Docker image is the submission artifact (its
+build is still unverified on the dev host, which has no Docker, and
+upload still awaits the team lead's go-ahead). Issues #4 (whether
+scripted / hybrid policies are allowed, and the end-effector pose
+frame), #6 (ranked metric, seeds, submission format before the Docker
+spec) and #8 (which objects are randomized, how the lid-lock and wipe
+milestones are scored) are still open with no organizer reply as of
+2026-11-23. Issue #8 is now answered from primary sources by this
+team in M17 (`tools/analyze_scoring.py`,
+`evaluation/scoring_analysis.md`): only the sponge pose is randomized
+in the demo data, the lid has no scored lock point, and each wipe face
+is worth 1 point after 0.5 s of sustained sponge-chamber contact —
+but the answer is the team's reading of the task code, not an
+organizer confirmation, and the issue stays open until the organizers
+say so.
 
 ---
 
 Team TwinTeleop (ECM-122) — Toni Adreal, toniadreal11@gmail.com.
-Prepared 2026-11-21. Not yet uploaded to the submission form; the file
+Prepared 2026-11-23. Not yet uploaded to the submission form; the file
 is ready for the team lead's go-ahead.
