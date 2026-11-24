@@ -2,8 +2,8 @@
 
 **Team:** TwinTeleop — **Team ID: ECM-122**
 **Team lead:** Toni Adreal — toniadreal11@gmail.com
-**Submission date:** 2026-11-23 (Beijing)
-**Policy version:** v4.2 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client + gripper-threshold sensitivity sweep + issue-#8 scoring analysis; submission defaults lookahead 2, phase advance cap 4, gripper threshold 0.8515; Batch 3 third demo integrated)
+**Submission date:** 2026-11-24 (Beijing)
+**Policy version:** v4.3 — multi-demo replay-follow (gripper replay + lagged-follower evaluation + lookahead sweep + observation-noise sweep + noise-robust phase tracking + official gRPC policy client + gripper-threshold sensitivity sweep + issue-#8 scoring analysis, re-derived from the upstream reset-anchor fix; submission defaults lookahead 2, phase advance cap 4, gripper threshold 0.8515; Batch 3 third demo integrated)
 
 ## Where the code lives
 
@@ -11,8 +11,8 @@ Full policy code, tests, and this document are public at:
 
 **https://github.com/ToniAdreal/ecm2027-chamber-policy**
 
-Commit submitted: `5a42fc7c767698ed0e245f8a4af7758f370c08db`
-("ECM 2027 M17: answer issue #8 scoring questions from task code + demo data (13-pt spec, sponge-only randomization, no lid-lock point; robot base fixed in data vs randomized in code)", 2026-11-23)
+Commit submitted: `e29be4cf64a21196a9e0939f97bd18e984bb2528`
+("ECM 2027 M18: re-derive issue #8 answers from upstream reset-anchor fix (17159e5)", 2026-11-24)
 
 This file is the submission README. The organizers asked for a policy file
 with a detailed README; because the submission form's upload validator
@@ -54,7 +54,9 @@ chamber task in the official simulation (`scene04_1.usd`).
 The bundled set holds nine real episodes: four Batch 1 (`demo_0`, `demo_2`,
 `demo_7`, `demo_9`), two Batch 2 (`demo_b2_0`, `demo_b2_3`), and three Batch 3
 (`demo_b3_0`, `demo_b3_1`, `demo_b3_2`), extracted from nine independent recordings of the official
-dataset `rocochallenge2025/ecm2027_sim_data`. Episode lengths: 7,471 / 5,632 /
+dataset `sgeaichallenge/ecm2027_sim_data` (formerly
+`rocochallenge2025/ecm2027_sim_data`; the dataset moved to the
+`sgeaichallenge` organization, last content change 2026-11-20). Episode lengths: 7,471 / 5,632 /
 7,566 / 5,122 / 4,106 / 4,022 / 4,503 / 5,823 / 6,163 steps. Batch 2 files carry the split
 observation terms `obs/eef_pos` + `obs/eef_quat` (composed into the same
 `(T, 2, 7)` shape by the loader) plus a real gripper observation
@@ -64,8 +66,9 @@ ships as one `.tar.gz` per recording (each holding a single
 observation, stored in the `demo_b3_0`, `demo_b3_1` and `demo_b3_2` bundles. Batch 3 was released
 2026-11-17, eleven days before the announced 2026-11-28 date; all three Batch 3
 tarballs are now downloaded, extracted, and integrated. (The Batch 3 listing on
-the dataset page has since grown to 200 recordings, last checked 2026-11-19;
-this package integrates the third recording in sequence.)
+the dataset page has since grown to 200 recordings, last checked 2026-11-24;
+the dataset itself has had no new content since the Batch 3 release
+2026-11-20, and this package integrates the third recording in sequence.)
 One honest caveat: Batch 3's first frame is bit-identical to Batch 2's
 rest pose (first-frame L2 difference 0.0 against `demo_b2_0`, `demo_b2_3`,
 `demo_b3_0` and `demo_b3_1`), so nearest-start selection ties across the five and
@@ -112,13 +115,13 @@ publishes, and the gRPC client follows the published protocol.
 
 ## 3. Verification (all CPU-side; this host has no GPU)
 
-* **113 / 113 tests pass** in the repository test suite, measured 2026-11-23
+* **114 / 114 tests pass** in the repository test suite, measured 2026-11-24
   in an isolated clone at the submitted commit (100 pass under the system
-  Python; the 13 skipped tests need h5py — 5 Batch 2 layout tests and 8
+  Python; the 14 skipped tests need h5py — 5 Batch 2 layout tests and 9
   scoring-analysis tests — and pass under the data-sample venv Python,
-  where the full suite runs 104/104 with the 9 gRPC tests skipped — that
+  where the full suite runs 105/105 with the 9 gRPC tests skipped — that
   venv has h5py but no protobuf, and PyPI is unreachable from this host
-  to install it; no single interpreter on this host runs all 113), including:
+  to install it; no single interpreter on this host runs all 114), including:
   full-episode rollout integrity (finite 20-dim actions, unit-norm
   quaternions, replayed gripper state on Batch 2 and Batch 3 demos and
   fixed gripper on Batch 1 demos, zero wheels throughout, monotonic phase
@@ -269,18 +272,27 @@ publishes, and the gRPC client follows the published protocol.
   error is exactly identical across thresholds in every cell, as
   expected (the gripper action does not feed the pose tracker).
 * Issue-#8 scoring analysis (`tools/analyze_scoring.py`, full table in
-  `evaluation/scoring_analysis.md`, 2026-11-23): the 13-point scoring
+  `evaluation/scoring_analysis.md`, 2026-11-23, re-derived 2026-11-24
+  from the upstream reset-anchor fix `17159e5`): the 13-point scoring
   spec is read from the starter repo's task code, and the demo data's
   `initial_state` root poses are measured against the code's
   randomization claims. Only the sponge pose is randomized in the data
   (position jitter within the code's +/-0.05 m band in x/y, yaw spread
   2.80 rad; recorded z 0.76-0.81 m straddles the spawn band's low edge,
   i.e. the pose is post-settle on the table). The robot base pose is
-  bit-identical in every sampled initial state although the task code
-  samples +/-0.10 m / +/-0.50 rad per reset, so the policy's
-  zero-base-velocity assumption matches the demo distribution, not
-  necessarily the eval distribution (upstream issue #5). Chamber, both
-  parts, table and lid joints are bit-identical: nothing else is
+  bit-identical in every sampled initial state, at exactly the anchor
+  the task code now uses for the eval reset (0.40, -0.85, yaw pi/2):
+  upstream `17159e5` (2026-11-23) samples the reset only +/-0.10 m /
+  +/-10 deg around that anchor, so the demos sit at the centre of the
+  eval distribution instead of ~0.3 m away from it (the old
+  shared-helper behaviour, upstream issue #5). The residual mismatch
+  is bounded: at eval the base can sit up to 0.10 m and 10 deg away
+  from the recorded pose, so a replayed demo can be off by up to
+  ~0.10 m in translation plus the yaw-induced end-effector offset;
+  the policy still commands zero base velocity. The table stays a
+  movable body as in data collection (`KEEP_TABLE_STATIC = False`),
+  and the eval default physics device is now cpu (upstream `81eccab`).
+  Chamber, both parts, table and lid joints are bit-identical: nothing else is
   randomized. There is no scored lid-lock point: the lid is scored as
   lift (1a), stable-open (1b) and stable-closed (6) only, and the word
   "lock" appears in the task file only in the episode description
@@ -302,12 +314,12 @@ publishes, and the gRPC client follows the published protocol.
 ```bash
 git clone https://github.com/ToniAdreal/ecm2027-chamber-policy.git
 cd ecm2027-chamber-policy
-git checkout 5a42fc7c767698ed0e245f8a4af7758f370c08db
+git checkout e29be4cf64a21196a9e0939f97bd18e984bb2528
 pip install -r requirements.txt   # numpy only
-python3 -m pytest tests/ -q      # expect: 100 passed, 13 skipped (the 13
-                                 # need h5py: 5 Batch 2 layout + 8
+python3 -m pytest tests/ -q      # expect: 100 passed, 14 skipped (the 14
+                                 # need h5py: 5 Batch 2 layout + 9
                                  # scoring-analysis tests; with h5py
-                                 # installed: 104 passed, 9 skipped —
+                                 # installed: 105 passed, 9 skipped —
                                  # the 9 gRPC tests need protobuf)
 docker build -t ecm2027-policy . # policy service image
 docker build -f Dockerfile.grpc -t ecm27-policy:latest . # official
@@ -365,7 +377,7 @@ While setting up the starter repository the team found and reported a
 missing-module defect in the official starter code:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/1
 (`isaaclab_teleop` present in source but not installed; also missing
-`mdp` exports). Still open with no organizer reply as of 2026-11-23.
+`mdp` exports). Still open with no organizer reply as of 2026-11-24.
 A second upstream issue appeared 2026-11-13 and is noted for the
 organizers, not filed by this team:
 https://github.com/rocochallenge/ecm2027_sim_track/issues/7
@@ -374,8 +386,15 @@ https://github.com/rocochallenge/ecm2027_sim_track/issues/7
 (`667517b`: sponge spawn height raised from 0.78 to 0.85 m in
 `robofinals_tasks/chamber_service_task.py`), followed the same day by
 `07d962a` (keep the service table static on GPU); the issue itself is
-still open with no organizer comment as of 2026-11-23, so it is not
-treated as closed. On
+still open with no organizer comment as of 2026-11-24, so it is not
+treated as closed. On 2026-11-23 the organizers committed two more
+fixes in the same file: `81eccab` (default eval physics device to cpu)
+and `17159e5` (reset the robot at the demonstration base pose: anchor
+(0.40, -0.85), yaw 90 deg, with only +/-0.10 m / +/-10 deg sampled
+around it, replacing the shared helper that moved the robot ~0.3 m
+away from the anchor — this answers the distribution question behind
+issues #5 and #8 from the code side; the table-static fix is kept but
+disabled by default, `KEEP_TABLE_STATIC = False`). On
 2026-11-20 the organizers merged the participant policy interface and
 evaluation into main (commits `a1dff75` / `aa1255e`: `policy_v1.proto`,
 README "Participant policy interface", example Docker policy,
@@ -396,17 +415,20 @@ scripted / hybrid policies are allowed, and the end-effector pose
 frame), #6 (ranked metric, seeds, submission format before the Docker
 spec) and #8 (which objects are randomized, how the lid-lock and wipe
 milestones are scored) are still open with no organizer reply as of
-2026-11-23. Issue #8 is now answered from primary sources by this
-team in M17 (`tools/analyze_scoring.py`,
+2026-11-24. Issue #8 is now answered from primary sources by this
+team in M17 and re-derived in M18 (`tools/analyze_scoring.py`,
 `evaluation/scoring_analysis.md`): only the sponge pose is randomized
 in the demo data, the lid has no scored lock point, and each wipe face
 is worth 1 point after 0.5 s of sustained sponge-chamber contact —
-but the answer is the team's reading of the task code, not an
+and since upstream `17159e5` the eval robot reset is anchored at
+exactly the demo base pose, so the demos sit at the centre of the
+eval distribution; the residual mismatch is bounded at 0.10 m / 10 deg.
+But the answer is the team's reading of the task code, not an
 organizer confirmation, and the issue stays open until the organizers
 say so.
 
 ---
 
 Team TwinTeleop (ECM-122) — Toni Adreal, toniadreal11@gmail.com.
-Prepared 2026-11-23. Not yet uploaded to the submission form; the file
+Prepared 2026-11-24. Not yet uploaded to the submission form; the file
 is ready for the team lead's go-ahead.
