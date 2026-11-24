@@ -122,7 +122,18 @@ class ScoringSpecTests(unittest.TestCase):
         t = spec["thresholds"]
         self.assertAlmostEqual(t["ROBOT_RESET_POS_DEV_X"], 0.10)
         self.assertAlmostEqual(t["ROBOT_RESET_POS_DEV_Y"], 0.10)
-        self.assertAlmostEqual(t["ROBOT_RESET_YAW_DEV"], 0.50)
+        # Upstream 17159e5 (2026-11-23): yaw deviation narrowed from
+        # +/-0.50 rad (+/-29 deg) to +/-10 deg around the demo anchor.
+        self.assertAlmostEqual(
+            t["ROBOT_RESET_YAW_DEV"], 0.17453292519943295
+        )
+        self.assertEqual(
+            spec["robot_reset_anchor_pos"], (0.40, -0.85, 0.0)
+        )
+        self.assertAlmostEqual(
+            spec["robot_reset_anchor_ori"][2], math.pi / 2
+        )
+        self.assertFalse(spec["keep_table_static"])
 
 
 class YawTests(unittest.TestCase):
@@ -178,6 +189,23 @@ class InitialStateTests(unittest.TestCase):
         self.assertEqual(robot["pos_range"], [0.0, 0.0, 0.0])
         self.assertEqual(robot["yaw_spread_rad"], 0.0)
 
+    def test_reset_anchor_matches_demo_base(self):
+        """Upstream 17159e5 anchors the eval reset at the demo base pose.
+
+        The measured demo base pose is (0.40, -0.85, 0.0), yaw pi/2,
+        exactly the ROBOT_RESET_ANCHOR_* constants in the task code, so
+        the demos sit at the centre of the eval distribution.
+        """
+        robot = self.summary["objects"]["robot"]
+        self.assertEqual(robot["pos_min"], [0.4, -0.85, 0.0])
+        self.assertEqual(robot["pos_max"], [0.4, -0.85, 0.0])
+        self.assertAlmostEqual(robot["yaw_min"], math.pi / 2, places=5)
+        self.assertAlmostEqual(robot["yaw_max"], math.pi / 2, places=5)
+        result = analyze(TASK_PATH, self.files)
+        self.assertTrue(
+            result["findings"]["robot_reset_anchor_matches_demo_base"]
+        )
+
     def test_chamber_parts_table_and_lid_fixed(self):
         for name in ("Chamber002", "Chamber002_01", "Table291",
                      "Chamber001_01"):
@@ -227,6 +255,12 @@ class InitialStateTests(unittest.TestCase):
         self.assertIn("no such scored point", md)
         self.assertIn("BIT-IDENTICAL", md)
         self.assertIn("cannot be reconstructed from demo data", md)
+        # The prose derives the yaw deviation from the parsed code, so
+        # it must show the new +/-10 deg value, not the old +/-0.50 rad.
+        self.assertIn("0.1745", md)
+        self.assertIn("10.0 degrees", md)
+        self.assertIn("17159e5", md)
+        self.assertNotIn("0.50 rad", md)
         json_text = json.dumps(result, sort_keys=True)
         self.assertIn("spongebody", json_text)
 

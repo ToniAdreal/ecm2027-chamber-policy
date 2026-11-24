@@ -46,11 +46,7 @@ face is inferred as the nearest cavity face, not sensed directly.
 
 ## Randomization: only the sponge (and, in code, the robot base)
 
-Task code randomizes exactly two things per reset: the sponge
-initial pose (base (0.37, -0.50, 0.85), +/-0.05 m uniform jitter
-per axis, yaw uniform over [0, 2*pi)) and the robot base pose
-(+/-0.10 m in x/y, +/-0.50 rad yaw around the anchor). The
-chamber, both parts and the table are fixed scene geometry.
+Task code randomizes exactly two things per reset: the sponge initial pose (base (0.37, -0.50, 0.85), +/-0.05 m uniform jitter per axis, yaw uniform over [0, 2*pi)) and the robot base pose (+/-0.10 m in x/y, +/-0.1745 rad (10.0 degrees) yaw around the anchor (0.4, -0.85, 0.0), heading 1.5708 rad). The chamber, both parts and the table are fixed scene geometry. Table: KEEP_TABLE_STATIC is False in the task code, so the table stays a movable body as in data collection (the GPU-physics static-table fix is kept but disabled).
 
 Measured across 4 unique initial
 states (5 raw entries,
@@ -70,12 +66,19 @@ states (5 raw entries,
   below the band, consistent with the recorded pose being
   post-settle on the table rather than the spawn pose.
 * Robot base pose is BIT-IDENTICAL in every sampled initial
-  state, although the task code samples +/-0.10 m / +/-0.50
-  rad per reset. The demos do not exhibit that spread: either
-  collection used a fixed anchor, or the recorded pose predates
-  resampling. The replay-follow policy's zero-base-velocity
-  assumption matches the demo distribution, not necessarily
-  the eval distribution (see upstream issue #5).
+  state, at the anchor (0.4, -0.85, 0.0) with
+  heading 1.5708 rad. The
+  task code now anchors the eval reset at exactly that pose
+  (upstream 17159e5) and samples only +/-0.10 m /
+  +/-0.1745 rad around it, so the demos sit at the
+  centre of the eval distribution instead of ~0.3 m away from
+  it (the old shared-helper behaviour, upstream issue #5).
+  Residual mismatch is bounded: at eval the base can sit up
+  to 0.10 m and 10 deg away from the
+  recorded pose, so a replayed demo can be off by up to
+  ~0.10 m in translation plus the yaw-induced end-effector
+  offset; the replay-follow policy still commands zero base
+  velocity.
 * Chamber, both parts, table and lid joints are bit-identical
   across episodes: nothing else is randomized.
 

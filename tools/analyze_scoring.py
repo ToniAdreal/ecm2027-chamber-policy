@@ -138,6 +138,14 @@ def parse_scoring(task_path: Path) -> dict:
     }
     sponge_base = _tuple_const(source, "SPONGE_BASE_POS")
     box_center = _tuple_const(source, "BOX_CENTER_XY")
+    # Reset anchor (upstream 17159e5, 2026-11-23): the eval reset now
+    # samples directly around the demo base pose instead of via the
+    # shared helper, which displaced the robot ~0.3 m from the anchor.
+    anchor_pos = _tuple_const(source, "ROBOT_RESET_ANCHOR_POS")
+    anchor_ori = _tuple_const(source, "ROBOT_RESET_ANCHOR_ORI")
+    keep_table_static = bool(
+        re.search(r"^\s*KEEP_TABLE_STATIC\s*=\s*True", source, re.M)
+    )
     wipe_faces = re.search(
         r'WIPE_FACE_NAMES\s*=\s*\((.*?)\)', source, re.S
     ).group(1)
@@ -157,6 +165,9 @@ def parse_scoring(task_path: Path) -> dict:
         "sponge_base_pos": sponge_base,
         "sponge_pos_jitter": thresholds.pop("SPONGE_POS_JITTER"),
         "box_center_xy": box_center,
+        "robot_reset_anchor_pos": anchor_pos,
+        "robot_reset_anchor_ori": anchor_ori,
+        "keep_table_static": keep_table_static,
         "wipe_faces": faces,
         "lock_mentions": lock_lines,
         "lid_lock_point": any("lock" in p for p in points),
@@ -295,6 +306,22 @@ def analyze(task_path: Path, hdf5_files) -> dict:
                 max_dev[0] <= jitter and max_dev[1] <= jitter
             )
         result["initial_states"] = summary
+        robot = summary["objects"].get("robot", {})
+        anchor_pos = spec["robot_reset_anchor_pos"]
+        anchor_yaw = spec["robot_reset_anchor_ori"][2]
+        anchor_match = bool(
+            robot
+            and all(
+                abs(a - b) <= 1e-6
+                for a, b in zip(robot["pos_min"], anchor_pos)
+            )
+            and all(
+                abs(a - b) <= 1e-6
+                for a, b in zip(robot["pos_max"], anchor_pos)
+            )
+            and abs(robot["yaw_min"] - anchor_yaw) <= 1e-6
+            and abs(robot["yaw_max"] - anchor_yaw) <= 1e-6
+        )
         result["findings"] = {
             "randomized_in_data": ["spongebody"],
             "fixed_in_data": [
@@ -308,6 +335,10 @@ def analyze(task_path: Path, hdf5_files) -> dict:
                 summary["objects"].get("robot", {}).get("yaw_spread_rad") == 0.0
                 and max(summary["objects"].get("robot", {}).get("pos_range", [1.0])) == 0.0
             ),
+            # Upstream 17159e5 (2026-11-23) anchors the eval reset at
+            # exactly the demo base pose: the demos sit at the centre
+            # of the eval distribution, not 0.3 m away from it.
+            "robot_reset_anchor_matches_demo_base": anchor_match,
             "lid_lock_scored": spec["lid_lock_point"],
             "demo_data_cannot_score_wipe_or_lid": True,
         }
@@ -365,13 +396,31 @@ def to_markdown(result: dict) -> str:
         "The contact sensor only reports sponge-vs-chamber contact; the",
         "face is inferred as the nearest cavity face, not sensed directly.",
         "",
+    ]
+    yaw_dev = spec["thresholds"]["ROBOT_RESET_YAW_DEV"]
+    anchor = spec["robot_reset_anchor_pos"]
+    anchor_yaw = spec["robot_reset_anchor_ori"][2]
+    randomization_paragraph = (
+        "Task code randomizes exactly two things per reset: the sponge "
+        "initial pose (base (0.37, -0.50, 0.85), +/-0.05 m uniform jitter "
+        "per axis, yaw uniform over [0, 2*pi)) and the robot base pose "
+        f"(+/-{spec['thresholds']['ROBOT_RESET_POS_DEV_X']:.2f} m in x/y, "
+        f"+/-{yaw_dev:.4f} rad ({math.degrees(yaw_dev):.1f} degrees) yaw "
+        f"around the anchor {anchor}, heading {anchor_yaw:.4f} rad). The "
+        "chamber, both parts and the table are fixed scene geometry. "
+        + (
+            "Table: KEEP_TABLE_STATIC is True in the task code, so the "
+            "table is held kinematic in GPU physics."
+            if spec["keep_table_static"]
+            else "Table: KEEP_TABLE_STATIC is False in the task code, so "
+            "the table stays a movable body as in data collection (the "
+            "GPU-physics static-table fix is kept but disabled)."
+        )
+    )
+    lines += [
         "## Randomization: only the sponge (and, in code, the robot base)",
         "",
-        "Task code randomizes exactly two things per reset: the sponge",
-        "initial pose (base (0.37, -0.50, 0.85), +/-0.05 m uniform jitter",
-        "per axis, yaw uniform over [0, 2*pi)) and the robot base pose",
-        "(+/-0.10 m in x/y, +/-0.50 rad yaw around the anchor). The",
-        "chamber, both parts and the table are fixed scene geometry.",
+        randomization_paragraph,
         "",
     ]
     summary = result.get("initial_states")
@@ -406,12 +455,19 @@ def to_markdown(result: dict) -> str:
             "  below the band, consistent with the recorded pose being",
             "  post-settle on the table rather than the spawn pose.",
             "* Robot base pose is BIT-IDENTICAL in every sampled initial",
-            "  state, although the task code samples +/-0.10 m / +/-0.50",
-            "  rad per reset. The demos do not exhibit that spread: either",
-            "  collection used a fixed anchor, or the recorded pose predates",
-            "  resampling. The replay-follow policy's zero-base-velocity",
-            "  assumption matches the demo distribution, not necessarily",
-            "  the eval distribution (see upstream issue #5).",
+            f"  state, at the anchor {spec['robot_reset_anchor_pos']} with",
+            f"  heading {spec['robot_reset_anchor_ori'][2]:.4f} rad. The",
+            "  task code now anchors the eval reset at exactly that pose",
+            f"  (upstream 17159e5) and samples only +/-0.10 m /",
+            f"  +/-{yaw_dev:.4f} rad around it, so the demos sit at the",
+            "  centre of the eval distribution instead of ~0.3 m away from",
+            "  it (the old shared-helper behaviour, upstream issue #5).",
+            "  Residual mismatch is bounded: at eval the base can sit up",
+            f"  to 0.10 m and {math.degrees(yaw_dev):.0f} deg away from the",
+            "  recorded pose, so a replayed demo can be off by up to",
+            "  ~0.10 m in translation plus the yaw-induced end-effector",
+            "  offset; the replay-follow policy still commands zero base",
+            "  velocity.",
             "* Chamber, both parts, table and lid joints are bit-identical",
             "  across episodes: nothing else is randomized.",
             "",
