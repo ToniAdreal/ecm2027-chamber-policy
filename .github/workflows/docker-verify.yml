@@ -42,6 +42,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest grpcio==1.85.3 protobuf==7.36.2 "numpy>=1.26,<3"
 
+      - name: Clone the upstream starter (sibling the adapter tests read)
+        run: |
+          git clone https://github.com/rocochallenge/ecm2027_sim_track.git ../ecm2027-sim-track
+          git -C ../ecm2027-sim-track checkout 17159e5
+
       - name: Run the test suite
         run: python -m pytest tests/ -q
 
