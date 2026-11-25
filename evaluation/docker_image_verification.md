@@ -78,5 +78,20 @@ socket (50 steps, exit 0, no violations).
 
 ## CI run record
 
-- 2026-11-25: workflow added; first run triggered by the push of
-  this milestone. Result: _to be filled in once the run completes_.
+- 2026-11-25, run 45573546978 (commit 1175928): FAILED in 17 s at
+  test collection — `tests/test_adapter.py` reads the real base
+  policy from the sibling `ecm2027-sim-track` checkout, which the
+  runner did not have.
+- 2026-11-25, run 45573822033 (commit f62de8c): the starter clone
+  was added (pinned to 17159e5). The suite passed on the runner
+  (103 passed, 14 skipped in 49.26 s), the image built, and the
+  container booted cleanly (CONTAINER_EXIT=0; verdict 4107 steps,
+  1 episode, no violations, gripper agreement 0.9961, passed true).
+  The run still failed only because the verdict-check step assumed
+  `gripper_agreement` is a float — it is a per-demo dict
+  (`{'demo_b2_0_ee_poses': 0.9961}`).
+- 2026-11-25, run 45574640392 (commit 67786c1): **SUCCESS**.
+  Suite 103 passed, 14 skipped in 28.09 s; image built;
+  CONTAINER_EXIT=0; verdict 4107 steps, 1 episode, no violations,
+  gripper agreement 0.9961, passed true; "DOCKER IMAGE VERIFIED:
+  full episode, no violations". The Docker image is verified.
