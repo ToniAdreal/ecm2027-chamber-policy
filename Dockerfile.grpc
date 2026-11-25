@@ -7,11 +7,15 @@
 # example (examples/policy_docker/Dockerfile), with our replay-follow
 # policy (ecm_policy/grpc_client.py) in place of the example policy.
 #
-# BUILD VERIFICATION PENDING: this image has never been built on the
-# dev host (no Docker there until milestone 19). Verify with
-# tools/fake_eval_server.py over a real gRPC socket before claiming
-# the build works; see evaluation/docker_image_verification.md when it
-# exists.
+# BUILD VERIFICATION: verified in GitHub Actions
+# (.github/workflows/docker-verify.yml), not on the dev host — this
+# VM's sandbox blocks the mount-namespace operations runc needs, so
+# no container can run there (see
+# evaluation/docker_image_verification.md). The workflow builds this
+# image and boots it against tools/fake_eval_server.py over a real
+# Unix-domain gRPC socket for the full demo_b2_0 episode (4107 steps);
+# it passes only on container exit 0 and a clean evaluator verdict
+# (1 episode, no violations, gripper agreement >= 0.95).
 # The delivery channel is published: the organizer mail 2026-11-20
 # (Liu Haichao, NTU) says the Docker image is submitted via
 # https://form.gov.sg/6ae35050aafe2da79edea132 (up to 5 submissions).

@@ -1,0 +1,78 @@
+# ECM 2027 - Docker image verification
+#
+# Builds the policy image (Dockerfile.grpc) and boots it against the
+# standalone fake evaluator (tools/fake_eval_server.py) over a real
+# Unix-domain gRPC socket, replaying the full demo_b2_0 episode
+# (4106 steps + 1). The job passes only when the container exits 0
+# and the evaluator verdict is: 4107 steps, 1 episode, no action
+# violations, gripper agreement >= 0.95.
+#
+# Why CI and not the dev host: this VM's sandbox blocks the mount
+# namespace operations runc needs (overlayfs mounts fail with
+# "invalid argument"; container start fails with "setns: operation
+# not permitted"), so no container can run there at all. The image
+# is verified here, on a GitHub-hosted runner, instead. See
+# evaluation/docker_image_verification.md for the full story.
+name: Docker image verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.grpc
+      - ecm_policy/**
+      - tools/fake_eval_server.py
+      - tests/test_fake_eval_server.py
+      - .github/workflows/docker-verify.yml
+  workflow_dispatch:
+
+jobs:
+  docker-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install host test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest grpcio==1.85.3 protobuf==7.36.2 "numpy>=1.26,<3"
+
+      - name: Run the test suite
+        run: python -m pytest tests/ -q
+
+      - name: Build the policy image
+        run: docker build -f Dockerfile.grpc -t ecm27-policy:ci .
+
+      - name: Boot the container against the fake evaluator
+        run: |
+          python tools/fake_eval_server.py --unix-socket /tmp/ecm-fake.sock --max-steps 4107 > /tmp/fake-server.log 2>&1 &
+          echo $! > /tmp/fake-server.pid
+          for i in $(seq 1 30); do [ -S /tmp/ecm-fake.sock ] && break; sleep 1; done
+          docker run --rm --network host -v /tmp:/tmp \
+            -e ECM27_EVAL_ENDPOINT=unix:///tmp/ecm-fake.sock \
+            -e ECM_MAX_STEPS=4107 ecm27-policy:ci
+          echo "CONTAINER_EXIT=$?"
+          wait "$(cat /tmp/fake-server.pid)" || true
+          cat /tmp/fake-server.log
+
+      - name: Check the evaluator verdict
+        run: |
+          python - <<'PY'
+          import json
+          import re
+
+          log = open('/tmp/fake-server.log').read()
+          verdict = json.loads(re.search(r'\{.*\}', log, re.S).group(0))
+          print(verdict)
+          assert verdict['passed'], verdict
+          assert verdict['episodes'] >= 1, verdict
+          assert verdict['steps'] == 4107, verdict
+          assert verdict['violations'] == [], verdict
+          assert verdict['gripper_agreement'] >= 0.95, verdict
+          print('DOCKER IMAGE VERIFIED: full episode, no violations')
+          PY
