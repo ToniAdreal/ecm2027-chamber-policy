@@ -7,13 +7,17 @@
 # example (examples/policy_docker/Dockerfile), with our replay-follow
 # policy (ecm_policy/grpc_client.py) in place of the example policy.
 #
-# BUILD NOT VERIFIED ON THE DEV HOST: this VM has no Docker, so the
-# image has never been built here. Build it where Docker exists:
+# BUILD VERIFICATION PENDING: this image has never been built on the
+# dev host (no Docker there until milestone 19). Verify with
+# tools/fake_eval_server.py over a real gRPC socket before claiming
+# the build works; see evaluation/docker_image_verification.md when it
+# exists.
+# The delivery channel is published: the organizer mail 2026-11-20
+# (Liu Haichao, NTU) says the Docker image is submitted via
+# https://form.gov.sg/6ae35050aafe2da79edea132 (up to 5 submissions).
+# Build it where Docker exists:
 #   docker build -f Dockerfile.grpc -t ecm27-policy:latest .
 #   docker save -o ecm27-policy.tar ecm27-policy:latest
-# The delivery channel for the image (registry reference or archive
-# upload) is still unpublished by the organizers (starter issue #6,
-# open, 0 comments); do not claim a submission route until it is.
 FROM python:3.12-slim
 
 WORKDIR /app

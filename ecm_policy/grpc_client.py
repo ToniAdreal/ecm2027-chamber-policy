@@ -330,6 +330,9 @@ def main() -> int:
     ``ECM27_EVAL_ENDPOINT`` is set by the evaluator to the server's
     ``host:port``. ``ECM_TRAJECTORY_DIR`` points at the bundled demo
     ``*_ee_poses.npz`` files (default: the repo's ``data/`` directory).
+    ``ECM_MAX_STEPS`` optionally bounds the run to that many steps
+    (smoke-test hook for verifying the Docker image against a fake
+    evaluator; unset runs until the evaluator stops the process).
     Requires ``grpcio``; without it, exit with a clear message instead
     of an import traceback.
     """
@@ -365,7 +368,9 @@ def main() -> int:
         )
 
     policy = ChamberGrpcPolicy(_factory)
-    stats = run_policy_loop(client, policy)
+    max_steps_raw = os.environ.get("ECM_MAX_STEPS")
+    max_steps = int(max_steps_raw) if max_steps_raw else None
+    stats = run_policy_loop(client, policy, max_steps=max_steps)
     return 0
 
 
