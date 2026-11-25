@@ -78,6 +78,11 @@ jobs:
           assert verdict['episodes'] >= 1, verdict
           assert verdict['steps'] == 4107, verdict
           assert verdict['violations'] == [], verdict
-          assert verdict['gripper_agreement'] >= 0.95, verdict
+          agreement = verdict['gripper_agreement']
+          # Per-demo dict (one entry per replayed bundle), not a scalar.
+          if isinstance(agreement, dict):
+              assert agreement and all(v >= 0.95 for v in agreement.values()), verdict
+          else:
+              assert agreement >= 0.95, verdict
           print('DOCKER IMAGE VERIFIED: full episode, no violations')
           PY
